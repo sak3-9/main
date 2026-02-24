@@ -1,30 +1,25 @@
 # taskアプリ（ふたりタスクボード）
 
-`task/index.html` は、2人（あなた / 彼女）で使う日常タスク共有管理アプリです。
+`task/` 配下に Next.js + Supabase 構成で実装しています。
 
-## 特徴
-- カンバン（Todo / Doing / Done）
-- 担当（あなた / 彼女 / ふたり）と優先度、期限
-- 検索 / フィルタ
-- ローカル保存（localStorage）
-- JSONバックアップ出力/読込
+## 重要ポイント
+- 2人のallowlistメールのみ利用可能
+- Magic Linkログイン
+- RLSでDBアクセス制御
+- Doneデフォルト非表示 + フィルタ
+- due today / overdue フィルタ
 
-## ローカル実行
-
-以下のどちらかでサーバーを起動し、URLを開いてください。
-
+## 開発起動
 ```bash
-./scripts/run-game.sh
-# その後: http://127.0.0.1:4173/task/index.html
+cd task
+npm install
+npm run dev
 ```
 
-## 公開して共有する
+ブラウザで `http://localhost:3000` を開いてください。
 
-GitHub Pages を有効化すると、次のようなURLで共有できます。
+## 公開共有
+Vercelへデプロイし、そのURLを2人で共有します。
+（GitHub PagesではNext.js動的機能を十分に扱えないため非推奨）
 
-- ゲーム: `https://<username>.github.io/<repo>/game/index.html`
-- タスク: `https://<username>.github.io/<repo>/task/index.html`
-
-例（このリポジトリ名が `main` の場合）:
-- `https://sak3-9.github.io/main/game/index.html`
-- `https://sak3-9.github.io/main/task/index.html`
+詳細は `task/README.md` を参照してください。
