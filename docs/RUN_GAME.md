@@ -1,6 +1,6 @@
 # ゲームの起動方法（ブラウザ）
 
-このリポジトリのミニゲームは `index.html` です。
+このリポジトリのミニゲーム本体は `game/index.html` です。
 
 ## 最短起動（Linux/macOS/Git Bash）
 
@@ -10,7 +10,7 @@
 
 起動後、次のURLをブラウザで開いてください。
 
-- `http://127.0.0.1:4173/index.html`
+- `http://127.0.0.1:4173/game/index.html`
 
 ## 最短起動（PowerShell / Windows）
 
@@ -20,7 +20,7 @@
 
 起動後、次のURLをブラウザで開いてください。
 
-- `http://127.0.0.1:4173/index.html`
+- `http://127.0.0.1:4173/game/index.html`
 
 ## ポートを変える場合
 
@@ -28,7 +28,7 @@
 ./scripts/run-game.sh 8080
 ```
 
-その場合は `http://127.0.0.1:8080/index.html` を開きます。
+その場合は `http://127.0.0.1:8080/game/index.html` を開きます。
 
 ## 直接起動（Python）
 

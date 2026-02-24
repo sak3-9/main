@@ -8,7 +8,7 @@ cd "$REPO_ROOT"
 
 echo "Launching local server for futon mini-game..."
 echo "Open this URL in your browser:"
-echo "  http://127.0.0.1:${PORT}/index.html"
+echo "  http://127.0.0.1:${PORT}/game/index.html"
 echo
 
 echo "Press Ctrl+C to stop."
