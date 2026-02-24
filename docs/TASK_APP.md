@@ -4,7 +4,7 @@
 
 ## 重要ポイント
 - 2人のallowlistメールのみ利用可能
-- Magic Linkログイン
+- Supabase Auth（Magic Link）
 - RLSでDBアクセス制御
 - Doneデフォルト非表示 + フィルタ
 - due today / overdue フィルタ
