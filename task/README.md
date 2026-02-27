@@ -67,3 +67,13 @@ npm run dev
 
 ## Theme config
 主な色は `tailwind.config.ts` で調整可能。
+
+
+## 9) `permission denied for table tasks` が出る場合
+
+過去のマイグレーション状態によっては、`tasks` テーブルに DELETE 権限が不足していることがあります。
+以下を Supabase SQL Editor で実行してください。
+
+1. `supabase/migrations/003_fix_task_delete_permission.sql`
+
+これで `authenticated` へ DELETE 権限を付与し、RLS の delete policy も再作成されます。
