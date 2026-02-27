@@ -61,8 +61,8 @@ npm run dev
 ## 8) UX仕様
 - ダークモード紫テーマ
 - 2画面構造: List + Detail
-- Doneはデフォルト非表示（filterで表示）
-- Due today / Overdue filter対応
+- タブ順: 未完了 / 今日まで / 共同 / さく担当 / しょこ担当 / 期限切れ / 完了 / アーカイブ
+- 完了・アーカイブは削除可能（確認ダイアログあり）
 - Last write wins（MVP）
 
 ## Theme config

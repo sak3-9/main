@@ -2,12 +2,12 @@ export type Priority = 'low' | 'medium' | 'high';
 export type Status = 'open' | 'done';
 export type FilterKey =
   | 'open'
-  | 'done'
-  | 'all'
+  | 'due_today'
+  | 'assigned_both'
   | 'assigned_me'
   | 'assigned_partner'
-  | 'due_today'
   | 'overdue'
+  | 'done'
   | 'archived';
 
 export type Profile = {

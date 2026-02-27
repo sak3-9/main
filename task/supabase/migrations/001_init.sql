@@ -156,5 +156,9 @@ for update
 using (public.is_allowlisted())
 with check (public.is_allowlisted());
 
--- Optional: disallow DELETE (MVP uses archive)
-revoke delete on public.tasks from anon, authenticated;
+-- DELETE policy (needed for removing done/archived tasks)
+drop policy if exists tasks_delete_allowlisted on public.tasks;
+create policy tasks_delete_allowlisted
+on public.tasks
+for delete
+using (public.is_allowlisted());
