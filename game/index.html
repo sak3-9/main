@@ -95,6 +95,7 @@
     <div class="topbar">
       <div class="pill" id="seedLabel">seed: -</div>
       <div class="pill" id="timeLabel">20.0s</div>
+      <div class="pill" id="bestLabel">BEST: -</div>
       <div class="pill" id="statusLabel">title</div>
     </div>
     <div style="position:relative; min-height:260px;">
@@ -221,6 +222,7 @@
   const eventBox = document.getElementById('eventBox');
   const seedLabel = document.getElementById('seedLabel');
   const timeLabel = document.getElementById('timeLabel');
+  const bestLabel = document.getElementById('bestLabel');
   const statusLabel = document.getElementById('statusLabel');
 
   const btnPull = document.getElementById('btnPull');
@@ -241,6 +243,7 @@
   const url = new URL(location.href);
   let seed = (url.searchParams.get('seed') || defaultSeed).replace(/[^0-9A-Za-z_-]/g,'').slice(0,24) || defaultSeed;
   let rng = mulberry32(hashStringToInt(seed));
+  const BEST_SCORE_KEY = 'futon-air-yomi-best-score';
 
   const state = {
     mode: 'title',
@@ -261,6 +264,43 @@
     floaty: [],
     animTime: 0,
   };
+
+  let bestRecord = loadBestRecord();
+
+  function loadBestRecord() {
+    try {
+      const raw = localStorage.getItem(BEST_SCORE_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed.finalScore !== 'number') return null;
+      return parsed;
+    } catch {
+      return null;
+    }
+  }
+
+  function updateBestLabel() {
+    if (!bestRecord) {
+      bestLabel.textContent = 'BEST: -';
+      return;
+    }
+    bestLabel.textContent = `BEST: ${bestRecord.finalScore} (${bestRecord.tier})`;
+  }
+
+  function saveBestRecordIfNeeded(score) {
+    if (!score) return;
+    if (bestRecord && bestRecord.finalScore >= score.finalScore) return;
+    bestRecord = {
+      finalScore: score.finalScore,
+      tier: score.tier,
+      seed,
+    };
+    try {
+      localStorage.setItem(BEST_SCORE_KEY, JSON.stringify(bestRecord));
+    } catch {
+      // storage unavailable
+    }
+  }
 
   // ===== Audio =====
   let audioCtx = null;
@@ -413,6 +453,8 @@
     const picked = picks[idx] || TITLES[0];
 
     state.score = { B, Q, finalScore, tier };
+    saveBestRecordIfNeeded(state.score);
+    updateBestLabel();
     state.titlePick = picked;
     showResultOverlay();
     beep('sine', 280, 0.2, 0.04);
@@ -769,6 +811,7 @@
   addEventListener('resize', fitCanvas);
   fitCanvas();
   setSeed(seed);
+  updateBestLabel();
   resetRun();
 
   let last = performance.now();
