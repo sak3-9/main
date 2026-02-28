@@ -68,6 +68,30 @@ npm run dev
 ## Theme config
 主な色は `tailwind.config.ts` で調整可能。
 
+## レビュー依頼時に共有するとよいファイル
+
+task管理システムのコードレビューを依頼する際は、次をセットで渡すと意図と実装の全体像が伝わりやすいです。
+
+- 仕様と前提
+  - `task/README.md`
+- 画面と主要ロジック
+  - `task/app/page.tsx`
+  - `task/app/layout.tsx`
+  - `task/app/globals.css`
+- 型・データアクセス
+  - `task/lib/types.ts`
+  - `task/lib/supabase.ts`
+- DBスキーマ / RLS / 初期データ
+  - `task/supabase/migrations/001_init.sql`
+  - `task/supabase/migrations/002_seed_allowlist.sql`
+  - `task/supabase/migrations/003_fix_task_delete_permission.sql`
+- ビルド・依存関係（再現用）
+  - `task/package.json`
+  - `task/tsconfig.json`
+  - `task/next.config.mjs`
+
+最小構成で依頼する場合でも、少なくとも `page.tsx` / `lib/*.ts` / `supabase/migrations/*.sql` は含めるのがおすすめです。
+
 
 ## 9) `permission denied for table tasks` が出る場合
 
