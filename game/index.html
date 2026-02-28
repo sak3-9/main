@@ -111,6 +111,7 @@
       <div class="subcontrols">
         <button id="btnStart">スタート</button>
         <button id="btnRestart">やり直し</button>
+        <button id="btnPause">一時停止</button>
         <button id="btnMute">🔊 音ON</button>
         <button id="btnRandSeed">ランダムseed</button>
       </div>
@@ -227,6 +228,7 @@
   const btnReturn = document.getElementById('btnReturn');
   const btnStart = document.getElementById('btnStart');
   const btnRestart = document.getElementById('btnRestart');
+  const btnPause = document.getElementById('btnPause');
   const btnMute = document.getElementById('btnMute');
   const btnRandSeed = document.getElementById('btnRandSeed');
   const btnCopySeed = document.getElementById('btnCopySeed');
@@ -346,6 +348,7 @@
     state.animTime = 0;
     state.floaty = [];
     prepareEvents();
+    btnPause.textContent = '一時停止';
     showTitleOverlay();
   }
 
@@ -365,8 +368,31 @@
     state.animTime = 0;
     state.floaty = [];
     prepareEvents();
+    btnPause.textContent = '一時停止';
     hideOverlay();
     beep('triangle', 420, 0.08, 0.035);
+  }
+
+  function pauseGame() {
+    if (state.mode !== 'playing') return;
+    state.mode = 'paused';
+    state.input = 'wait';
+    btnPause.textContent = '再開';
+    showPauseOverlay();
+    beep('square', 220, 0.05, 0.018);
+  }
+
+  function resumeGame() {
+    if (state.mode !== 'paused') return;
+    state.mode = 'playing';
+    btnPause.textContent = '一時停止';
+    hideOverlay();
+    beep('triangle', 380, 0.05, 0.018);
+  }
+
+  function togglePause() {
+    if (state.mode === 'playing') pauseGame();
+    else if (state.mode === 'paused') resumeGame();
   }
 
   function endGame() {
@@ -497,6 +523,13 @@
       <p>${t.line}</p>
       <p><strong>占有率 B:</strong> ${s.B}% ／ <strong>睡眠の質 Q:</strong> ${s.Q} ／ <strong>最終:</strong> ${s.finalScore}</p>
       <p class="small">seed: ${seed}</p>
+    </div>`;
+  }
+  function showPauseOverlay() {
+    overlay.innerHTML = `<div class="card">
+      <h1>一時停止中</h1>
+      <p>「再開」ボタンまたは P キーで続行できます。</p>
+      <p class="small">キーボード: A=引く / S=待つ / D=戻す / P=一時停止</p>
     </div>`;
   }
   function hideOverlay() { overlay.innerHTML = ''; }
@@ -683,6 +716,7 @@
 
   btnStart.addEventListener('click', () => startGame());
   btnRestart.addEventListener('click', () => resetRun());
+  btnPause.addEventListener('click', () => togglePause());
   btnMute.addEventListener('click', () => {
     muted = !muted;
     btnMute.textContent = muted ? '🔈 音OFF' : '🔊 音ON';
@@ -694,6 +728,30 @@
   btnCopySeed.addEventListener('click', copySeedUrl);
   btnShareX.addEventListener('click', shareX);
   btnCard.addEventListener('click', saveResultCard);
+
+  const keyToInput = {
+    KeyA: 'pull',
+    KeyS: 'wait',
+    KeyD: 'return'
+  };
+  document.addEventListener('keydown', (e) => {
+    if (e.repeat) return;
+    if (e.code === 'KeyP') {
+      e.preventDefault();
+      togglePause();
+      return;
+    }
+    if (state.mode !== 'playing') return;
+    const nextInput = keyToInput[e.code];
+    if (!nextInput) return;
+    e.preventDefault();
+    state.input = nextInput;
+  });
+  document.addEventListener('keyup', (e) => {
+    const nextInput = keyToInput[e.code];
+    if (!nextInput) return;
+    if (state.mode === 'playing') state.input = 'wait';
+  });
 
   // stop accidental scroll/zoom
   const block = e => e.preventDefault();
