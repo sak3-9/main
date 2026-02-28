@@ -95,6 +95,7 @@
     <div class="topbar">
       <div class="pill" id="seedLabel">seed: -</div>
       <div class="pill" id="timeLabel">20.0s</div>
+      <div class="pill" id="bestLabel">BEST: -</div>
       <div class="pill" id="statusLabel">title</div>
     </div>
     <div style="position:relative; min-height:260px;">
@@ -111,6 +112,7 @@
       <div class="subcontrols">
         <button id="btnStart">スタート</button>
         <button id="btnRestart">やり直し</button>
+        <button id="btnPause">一時停止</button>
         <button id="btnMute">🔊 音ON</button>
         <button id="btnRandSeed">ランダムseed</button>
       </div>
@@ -220,6 +222,7 @@
   const eventBox = document.getElementById('eventBox');
   const seedLabel = document.getElementById('seedLabel');
   const timeLabel = document.getElementById('timeLabel');
+  const bestLabel = document.getElementById('bestLabel');
   const statusLabel = document.getElementById('statusLabel');
 
   const btnPull = document.getElementById('btnPull');
@@ -227,6 +230,7 @@
   const btnReturn = document.getElementById('btnReturn');
   const btnStart = document.getElementById('btnStart');
   const btnRestart = document.getElementById('btnRestart');
+  const btnPause = document.getElementById('btnPause');
   const btnMute = document.getElementById('btnMute');
   const btnRandSeed = document.getElementById('btnRandSeed');
   const btnCopySeed = document.getElementById('btnCopySeed');
@@ -239,6 +243,7 @@
   const url = new URL(location.href);
   let seed = (url.searchParams.get('seed') || defaultSeed).replace(/[^0-9A-Za-z_-]/g,'').slice(0,24) || defaultSeed;
   let rng = mulberry32(hashStringToInt(seed));
+  const BEST_SCORE_KEY = 'futon-air-yomi-best-score';
 
   const state = {
     mode: 'title',
@@ -259,6 +264,43 @@
     floaty: [],
     animTime: 0,
   };
+
+  let bestRecord = loadBestRecord();
+
+  function loadBestRecord() {
+    try {
+      const raw = localStorage.getItem(BEST_SCORE_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed.finalScore !== 'number') return null;
+      return parsed;
+    } catch {
+      return null;
+    }
+  }
+
+  function updateBestLabel() {
+    if (!bestRecord) {
+      bestLabel.textContent = 'BEST: -';
+      return;
+    }
+    bestLabel.textContent = `BEST: ${bestRecord.finalScore} (${bestRecord.tier})`;
+  }
+
+  function saveBestRecordIfNeeded(score) {
+    if (!score) return;
+    if (bestRecord && bestRecord.finalScore >= score.finalScore) return;
+    bestRecord = {
+      finalScore: score.finalScore,
+      tier: score.tier,
+      seed,
+    };
+    try {
+      localStorage.setItem(BEST_SCORE_KEY, JSON.stringify(bestRecord));
+    } catch {
+      // storage unavailable
+    }
+  }
 
   // ===== Audio =====
   let audioCtx = null;
@@ -346,6 +388,7 @@
     state.animTime = 0;
     state.floaty = [];
     prepareEvents();
+    btnPause.textContent = '一時停止';
     showTitleOverlay();
   }
 
@@ -365,8 +408,31 @@
     state.animTime = 0;
     state.floaty = [];
     prepareEvents();
+    btnPause.textContent = '一時停止';
     hideOverlay();
     beep('triangle', 420, 0.08, 0.035);
+  }
+
+  function pauseGame() {
+    if (state.mode !== 'playing') return;
+    state.mode = 'paused';
+    state.input = 'wait';
+    btnPause.textContent = '再開';
+    showPauseOverlay();
+    beep('square', 220, 0.05, 0.018);
+  }
+
+  function resumeGame() {
+    if (state.mode !== 'paused') return;
+    state.mode = 'playing';
+    btnPause.textContent = '一時停止';
+    hideOverlay();
+    beep('triangle', 380, 0.05, 0.018);
+  }
+
+  function togglePause() {
+    if (state.mode === 'playing') pauseGame();
+    else if (state.mode === 'paused') resumeGame();
   }
 
   function endGame() {
@@ -387,6 +453,8 @@
     const picked = picks[idx] || TITLES[0];
 
     state.score = { B, Q, finalScore, tier };
+    saveBestRecordIfNeeded(state.score);
+    updateBestLabel();
     state.titlePick = picked;
     showResultOverlay();
     beep('sine', 280, 0.2, 0.04);
@@ -497,6 +565,13 @@
       <p>${t.line}</p>
       <p><strong>占有率 B:</strong> ${s.B}% ／ <strong>睡眠の質 Q:</strong> ${s.Q} ／ <strong>最終:</strong> ${s.finalScore}</p>
       <p class="small">seed: ${seed}</p>
+    </div>`;
+  }
+  function showPauseOverlay() {
+    overlay.innerHTML = `<div class="card">
+      <h1>一時停止中</h1>
+      <p>「再開」ボタンまたは P キーで続行できます。</p>
+      <p class="small">キーボード: A=引く / S=待つ / D=戻す / P=一時停止</p>
     </div>`;
   }
   function hideOverlay() { overlay.innerHTML = ''; }
@@ -683,6 +758,7 @@
 
   btnStart.addEventListener('click', () => startGame());
   btnRestart.addEventListener('click', () => resetRun());
+  btnPause.addEventListener('click', () => togglePause());
   btnMute.addEventListener('click', () => {
     muted = !muted;
     btnMute.textContent = muted ? '🔈 音OFF' : '🔊 音ON';
@@ -694,6 +770,30 @@
   btnCopySeed.addEventListener('click', copySeedUrl);
   btnShareX.addEventListener('click', shareX);
   btnCard.addEventListener('click', saveResultCard);
+
+  const keyToInput = {
+    KeyA: 'pull',
+    KeyS: 'wait',
+    KeyD: 'return'
+  };
+  document.addEventListener('keydown', (e) => {
+    if (e.repeat) return;
+    if (e.code === 'KeyP') {
+      e.preventDefault();
+      togglePause();
+      return;
+    }
+    if (state.mode !== 'playing') return;
+    const nextInput = keyToInput[e.code];
+    if (!nextInput) return;
+    e.preventDefault();
+    state.input = nextInput;
+  });
+  document.addEventListener('keyup', (e) => {
+    const nextInput = keyToInput[e.code];
+    if (!nextInput) return;
+    if (state.mode === 'playing') state.input = 'wait';
+  });
 
   // stop accidental scroll/zoom
   const block = e => e.preventDefault();
@@ -711,6 +811,7 @@
   addEventListener('resize', fitCanvas);
   fitCanvas();
   setSeed(seed);
+  updateBestLabel();
   resetRun();
 
   let last = performance.now();
