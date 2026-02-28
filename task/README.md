@@ -23,6 +23,8 @@
 Supabase SQL Editorで次を順番に実行:
 1. `supabase/migrations/001_init.sql`
 2. `supabase/migrations/002_seed_allowlist.sql`（2人のメールに置換してから）
+3. `supabase/migrations/003_fix_task_delete_permission.sql`（既存環境で削除権限エラーが出る場合）
+4. `supabase/migrations/004_harden_task_permissions.sql`（列権限と削除条件の強化）
 
 ### allowlistメール更新
 `002_seed_allowlist.sql` の以下を置換:
@@ -30,7 +32,11 @@ Supabase SQL Editorで次を順番に実行:
 - `partner_email@example.com`
 
 ## 3) Environment Variables
-`.env.local` を作成:
+`.env.example` をコピーして `.env.local` を作成:
+
+```bash
+cp .env.example .env.local
+```
 
 ```env
 NEXT_PUBLIC_SUPABASE_URL=https://YOUR_PROJECT.supabase.co
@@ -61,8 +67,9 @@ npm run dev
 ## 8) UX仕様
 - ダークモード紫テーマ
 - 2画面構造: List + Detail
-- タブ順: 未完了 / 今日まで / 共同 / さく担当 / しょこ担当 / 期限切れ / 完了 / アーカイブ
-- 完了・アーカイブは削除可能（確認ダイアログあり）
+- タブ順: 未完了 / 今日まで / 共同 / さく担当 / しょこ担当 / 期限切れ / すべて / 完了 / アーカイブ
+- due_today は未完了のみ対象
+- 完了・アーカイブは削除可能（確認ダイアログあり、DB側でも条件付き許可）
 - Last write wins（MVP）
 
 ## Theme config
@@ -77,3 +84,17 @@ npm run dev
 1. `supabase/migrations/003_fix_task_delete_permission.sql`
 
 これで `authenticated` へ DELETE 権限を付与し、RLS の delete policy も再作成されます。
+
+
+## 10) フィルタ簡易テスト
+- Open: 未完了のみ表示
+- All: 未アーカイブ全件（open/done混在）
+- Due today: 未完了かつ本日期限
+- Overdue: 未完了かつ期限切れ
+- Done: 完了のみ
+- Archived: アーカイブのみ
+
+## 11) 削除条件テスト
+- openタスクを削除: 失敗（UI/DBで拒否）
+- doneタスクを削除: 成功
+- archivedタスクを削除: 成功

@@ -6,6 +6,8 @@ import type { FilterKey, Priority, Profile, Task } from '@/lib/types';
 
 type AuthUser = { id: string; email: string } | null;
 
+type EditableTaskFields = Pick<Task, 'title' | 'memo' | 'due_date' | 'priority' | 'assignee' | 'status' | 'is_archived'>;
+
 const TABS: { key: FilterKey; label: string }[] = [
   { key: 'open', label: '未完了' },
   { key: 'due_today', label: '今日まで' },
@@ -13,6 +15,7 @@ const TABS: { key: FilterKey; label: string }[] = [
   { key: 'assigned_me', label: 'さく担当' },
   { key: 'assigned_partner', label: 'しょこ担当' },
   { key: 'overdue', label: '期限切れ' },
+  { key: 'all', label: 'すべて' },
   { key: 'done', label: '完了' },
   { key: 'archived', label: 'アーカイブ' }
 ];
@@ -20,14 +23,22 @@ const TABS: { key: FilterKey; label: string }[] = [
 const priorityOrder: Record<Priority, number> = { high: 3, medium: 2, low: 1 };
 const priorityLabel: Record<Priority, string> = { high: '高', medium: '中', low: '低' };
 
+function todayLocal(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 function isToday(date: string | null): boolean {
   if (!date) return false;
-  return date === new Date().toISOString().slice(0, 10);
+  return date === todayLocal();
 }
 
 function isOverdue(date: string | null): boolean {
   if (!date) return false;
-  return date < new Date().toISOString().slice(0, 10);
+  return date < todayLocal();
 }
 
 function dueText(task: Task): string {
@@ -35,6 +46,18 @@ function dueText(task: Task): string {
   if (isOverdue(task.due_date) && task.status === 'open') return '期限切れ';
   if (isToday(task.due_date)) return '今日まで';
   return task.due_date;
+}
+
+function toEditablePayload(task: Partial<Task>): Partial<EditableTaskFields> {
+  const payload: Partial<EditableTaskFields> = {};
+  if (typeof task.title === 'string') payload.title = task.title;
+  if (typeof task.memo === 'string' || task.memo === null) payload.memo = task.memo ?? null;
+  if (typeof task.due_date === 'string' || task.due_date === null) payload.due_date = task.due_date ?? null;
+  if (task.priority === 'low' || task.priority === 'medium' || task.priority === 'high') payload.priority = task.priority;
+  if (typeof task.assignee === 'string' || task.assignee === null) payload.assignee = task.assignee;
+  if (task.status === 'open' || task.status === 'done') payload.status = task.status;
+  if (typeof task.is_archived === 'boolean') payload.is_archived = task.is_archived;
+  return payload;
 }
 
 export default function Page() {
@@ -54,11 +77,12 @@ export default function Page() {
 
   const counts = useMemo(() => ({
     open: tasks.filter((t) => t.status === 'open' && !t.is_archived).length,
-    due_today: tasks.filter((t) => isToday(t.due_date) && !t.is_archived).length,
+    due_today: tasks.filter((t) => t.status === 'open' && isToday(t.due_date) && !t.is_archived).length,
     assigned_both: tasks.filter((t) => t.assignee === null && !t.is_archived).length,
     assigned_me: tasks.filter((t) => user && t.assignee === user.id && !t.is_archived).length,
     assigned_partner: tasks.filter((t) => partnerId && t.assignee === partnerId && !t.is_archived).length,
-    overdue: tasks.filter((t) => isOverdue(t.due_date) && t.status === 'open' && !t.is_archived).length
+    overdue: tasks.filter((t) => isOverdue(t.due_date) && t.status === 'open' && !t.is_archived).length,
+    all: tasks.filter((t) => !t.is_archived).length
   }), [tasks, user, partnerId]);
 
   async function loadTasks() {
@@ -73,9 +97,9 @@ export default function Page() {
 
   async function resolvePartnerId(myId: string) {
     if (!supabase) return;
-    const { data, error: rpcError } = await supabase.rpc('workspace_members');
-    if (rpcError || !Array.isArray(data)) return;
-    const other = data.find((m: Profile) => m.id !== myId);
+    const { data, error: selectErr } = await supabase.from('profiles').select('id,display_name');
+    if (selectErr || !Array.isArray(data)) return;
+    const other = (data as Profile[]).find((m) => m.id !== myId);
     setPartnerId(other?.id ?? null);
   }
 
@@ -144,11 +168,12 @@ export default function Page() {
       .filter((t) => {
         switch (filter) {
           case 'open': return t.status === 'open' && !t.is_archived;
-          case 'due_today': return isToday(t.due_date) && !t.is_archived;
+          case 'due_today': return t.status === 'open' && isToday(t.due_date) && !t.is_archived;
           case 'assigned_both': return t.assignee === null && !t.is_archived;
           case 'assigned_me': return t.assignee === user?.id && !t.is_archived;
           case 'assigned_partner': return partnerId ? t.assignee === partnerId && !t.is_archived : false;
           case 'overdue': return isOverdue(t.due_date) && t.status === 'open' && !t.is_archived;
+          case 'all': return !t.is_archived;
           case 'done': return t.status === 'done' && !t.is_archived;
           case 'archived': return t.is_archived;
         }
@@ -193,15 +218,20 @@ export default function Page() {
     const local = tasks.find((t) => t.id === id);
     if (!local) return;
 
-    const title = (patch.title ?? local.title).trim();
-    const memo = (patch.memo ?? local.memo ?? '').trim();
+    const payload = toEditablePayload(patch);
+    const title = (payload.title ?? local.title).trim();
+    const memo = (payload.memo ?? local.memo ?? '').trim();
+
     if (title.length < 1 || title.length > 100) return setError('タイトルは1〜100文字で入力してください。');
     if (memo.length > 2000) return setError('メモは2000文字以内で入力してください。');
 
-    const { error } = await supabase.from('tasks').update({ ...patch, title, memo }).eq('id', id);
+    payload.title = title;
+    payload.memo = memo;
+
+    const { error } = await supabase.from('tasks').update(payload).eq('id', id);
     if (error) return setError(error.message);
 
-    setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch, title, memo, updated_at: new Date().toISOString() } : t)));
+    setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, ...payload, updated_at: new Date().toISOString() } : t)));
   }
 
   async function deleteTask(task: Task) {
@@ -245,14 +275,7 @@ export default function Page() {
         <form onSubmit={signInMagic} className="w-full max-w-md rounded-2xl border border-purple-400/30 bg-panel p-6 space-y-4 shadow-xl">
           <h1 className="text-2xl font-bold">ふたりタスク共有</h1>
           <p className="text-sm text-purple-200">さくとしょこ専用の、やさしいタスク管理です。</p>
-          <input
-            className="w-full rounded-xl bg-bg px-3 py-2 no-zoom"
-            type="email"
-            required
-            value={emailInput}
-            onChange={(e) => setEmailInput(e.target.value)}
-            placeholder="メールアドレス"
-          />
+          <input className="w-full rounded-xl bg-bg px-3 py-2 no-zoom" type="email" required value={emailInput} onChange={(e) => setEmailInput(e.target.value)} placeholder="メールアドレス" />
           <button className="w-full rounded-xl bg-gradient-to-r from-accent to-accent2 py-2 font-semibold text-black no-zoom">ログインリンクを送る</button>
           {authMessage && <p className="text-sm text-purple-100">{authMessage}</p>}
           {error && <p className="text-sm text-rose-200">{error}</p>}
@@ -275,19 +298,16 @@ export default function Page() {
 
           <div className="mb-4 flex gap-2 overflow-auto pb-1">
             {TABS.map((tab) => (
-              <button
-                key={tab.key}
-                onClick={() => setFilter(tab.key)}
-                className={`whitespace-nowrap rounded-full px-3 py-1 text-sm ${filter === tab.key ? 'bg-accent text-black' : 'bg-card text-purple-100'}`}
-              >
+              <button key={tab.key} onClick={() => setFilter(tab.key)} className={`whitespace-nowrap rounded-full px-3 py-1 text-sm ${filter === tab.key ? 'bg-accent text-black' : 'bg-card text-purple-100'}`}>
                 {tab.label}
-                {tab.key !== 'done' && tab.key !== 'archived' && (
+                {!['done', 'archived'].includes(tab.key) && (
                   <span className="ml-2 rounded-full bg-black/30 px-2 py-0.5 text-xs text-white">{counts[tab.key as keyof typeof counts] ?? 0}</span>
                 )}
               </button>
             ))}
           </div>
 
+          {!partnerId && <p className="mb-2 text-xs text-purple-300">しょこがまだログインしていないため、一部の担当切替は制限されます。</p>}
           {error && <p className="mb-3 rounded-lg bg-rose-400/15 p-2 text-sm text-rose-100">{error}</p>}
 
           <div className="grid gap-3 lg:grid-cols-3">
@@ -308,13 +328,7 @@ export default function Page() {
             </div>
           </div>
 
-          <button
-            onClick={createTask}
-            disabled={saving}
-            className="fixed bottom-6 right-6 md:static md:mt-4 rounded-full md:rounded-xl bg-gradient-to-r from-accent to-accent2 px-5 py-3 font-bold text-black shadow-xl no-zoom"
-          >
-            ＋ タスク追加
-          </button>
+          <button onClick={createTask} disabled={saving} className="fixed bottom-6 right-6 md:static md:mt-4 rounded-full md:rounded-xl bg-gradient-to-r from-accent to-accent2 px-5 py-3 font-bold text-black shadow-xl no-zoom">＋ タスク追加</button>
         </section>
 
         <section className="rounded-2xl border border-purple-500/30 bg-panel p-4">
@@ -327,21 +341,17 @@ export default function Page() {
           {selected && (
             <div className="space-y-3">
               <h2 className="text-lg font-semibold">タスク詳細</h2>
-              <label className="text-sm">
-                タイトル
+              <label className="text-sm">タイトル
                 <input className="mt-1 w-full rounded-xl bg-bg px-3 py-2" value={selected.title} onChange={(e) => setTasks((prev) => prev.map((t) => (t.id === selected.id ? { ...t, title: e.target.value } : t)))} />
               </label>
-              <label className="text-sm">
-                メモ
+              <label className="text-sm">メモ
                 <textarea className="mt-1 w-full rounded-xl bg-bg px-3 py-2 min-h-28" value={selected.memo ?? ''} onChange={(e) => setTasks((prev) => prev.map((t) => (t.id === selected.id ? { ...t, memo: e.target.value } : t)))} />
               </label>
               <div className="grid grid-cols-2 gap-2">
-                <label className="text-sm">
-                  期限
+                <label className="text-sm">期限
                   <input type="date" className="mt-1 w-full rounded-xl bg-bg px-3 py-2" value={selected.due_date ?? ''} onChange={(e) => setTasks((prev) => prev.map((t) => (t.id === selected.id ? { ...t, due_date: e.target.value || null } : t)))} />
                 </label>
-                <label className="text-sm">
-                  優先度
+                <label className="text-sm">優先度
                   <select className="mt-1 w-full rounded-xl bg-bg px-3 py-2" value={selected.priority} onChange={(e) => setTasks((prev) => prev.map((t) => (t.id === selected.id ? { ...t, priority: e.target.value as Priority } : t)))}>
                     <option value="low">低</option>
                     <option value="medium">中</option>
@@ -349,8 +359,7 @@ export default function Page() {
                   </select>
                 </label>
               </div>
-              <label className="text-sm">
-                担当
+              <label className="text-sm">担当
                 <select className="mt-1 w-full rounded-xl bg-bg px-3 py-2" value={selected.assignee ?? '__both__'} onChange={(e) => setTasks((prev) => prev.map((t) => (t.id === selected.id ? { ...t, assignee: e.target.value === '__both__' ? null : e.target.value } : t)))}>
                   <option value="__both__">共同</option>
                   <option value={user.id}>さく</option>
@@ -359,21 +368,12 @@ export default function Page() {
               </label>
 
               <div className="flex flex-wrap gap-2">
-                <button className="rounded-xl bg-accent px-4 py-2 text-black" onClick={() => patchTask(selected.id, selected)}>保存</button>
-                <button
-                  className="rounded-xl bg-card px-4 py-2"
-                  onClick={() => {
-                    if (window.confirm(selected.is_archived ? 'アーカイブを解除しますか？' : 'アーカイブへ移動しますか？')) {
-                      patchTask(selected.id, { is_archived: !selected.is_archived });
-                    }
-                  }}
-                >
+                <button className="rounded-xl bg-accent px-4 py-2 text-black" onClick={() => patchTask(selected.id, toEditablePayload(selected))}>保存</button>
+                <button className="rounded-xl bg-card px-4 py-2" onClick={() => { if (window.confirm(selected.is_archived ? 'アーカイブを解除しますか？' : 'アーカイブへ移動しますか？')) patchTask(selected.id, { is_archived: !selected.is_archived }); }}>
                   {selected.is_archived ? 'アーカイブ解除' : 'アーカイブ'}
                 </button>
                 <button className="rounded-xl bg-card px-4 py-2" onClick={() => toggleDone(selected)}>{selected.status === 'open' ? '完了にする' : '未完了に戻す'}</button>
-                {(selected.status === 'done' || selected.is_archived) && (
-                  <button className="rounded-xl bg-rose-700/80 px-4 py-2" onClick={() => deleteTask(selected)}>削除</button>
-                )}
+                {(selected.status === 'done' || selected.is_archived) && <button className="rounded-xl bg-rose-700/80 px-4 py-2" onClick={() => deleteTask(selected)}>削除</button>}
               </div>
               <p className="text-xs text-purple-300">作成: {new Date(selected.created_at).toLocaleString()} / 更新: {new Date(selected.updated_at).toLocaleString()}</p>
             </div>
@@ -401,6 +401,9 @@ function TaskCard({
   onPatch: (id: string, patch: Partial<Task>) => void;
   onDelete: (task: Task) => void;
 }) {
+  const canSwitchToPartner = Boolean(partnerId);
+  const nextAssignee = t.assignee === me ? (canSwitchToPartner ? partnerId : null) : t.assignee === partnerId ? null : me;
+
   return (
     <article className="mb-2 rounded-xl border border-purple-500/25 bg-card p-3">
       <button onClick={() => onSelect(t.id)} className="w-full text-left"><p className="font-semibold text-purple-50">{t.title}</p></button>
@@ -411,11 +414,9 @@ function TaskCard({
       </div>
       <div className="mt-2 flex flex-wrap gap-2 text-xs">
         <button className="rounded bg-black/25 px-2 py-1" onClick={() => onToggleDone(t)}>{t.status === 'open' ? '完了にする' : '未完了に戻す'}</button>
-        <button className="rounded bg-black/25 px-2 py-1" onClick={() => onPatch(t.id, { assignee: t.assignee === me ? partnerId : t.assignee === partnerId ? null : me })}>担当切替</button>
+        <button className="rounded bg-black/25 px-2 py-1 disabled:opacity-50" disabled={!canSwitchToPartner && t.assignee === me} onClick={() => onPatch(t.id, { assignee: nextAssignee ?? null })}>担当切替</button>
         <button className="rounded bg-black/25 px-2 py-1" onClick={() => onPatch(t.id, { priority: t.priority === 'high' ? 'medium' : t.priority === 'medium' ? 'low' : 'high' })}>優先度変更</button>
-        {(t.status === 'done' || t.is_archived) && (
-          <button className="rounded bg-rose-700/80 px-2 py-1" onClick={() => onDelete(t)}>削除</button>
-        )}
+        {(t.status === 'done' || t.is_archived) && <button className="rounded bg-rose-700/80 px-2 py-1" onClick={() => onDelete(t)}>削除</button>}
       </div>
     </article>
   );

@@ -7,6 +7,7 @@ export type FilterKey =
   | 'assigned_me'
   | 'assigned_partner'
   | 'overdue'
+  | 'all'
   | 'done'
   | 'archived';
 
