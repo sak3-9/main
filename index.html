@@ -1,0 +1,736 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover" />
+  <title>ふとん空気読みバトル v1.0</title>
+  <style>
+    :root {
+      --bg1:#0d1b2a;
+      --bg2:#1b263b;
+      --ui:#e0e1dd;
+      --accent:#ffd166;
+      --good:#80ed99;
+      --warn:#ff6b6b;
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body {
+      margin:0; height:100%; overflow:hidden;
+      background:linear-gradient(180deg,var(--bg1),var(--bg2));
+      color:var(--ui);
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      touch-action: none;
+    }
+    #app {
+      position: fixed; inset:0;
+      display:grid;
+      grid-template-rows: auto 1fr auto;
+      gap: 8px;
+      padding: calc(env(safe-area-inset-top) + 8px) 10px calc(env(safe-area-inset-bottom) + 10px);
+      touch-action:none;
+    }
+    .topbar {
+      display:flex; align-items:center; justify-content:space-between; gap:8px;
+      font-weight:600; font-size:14px;
+    }
+    .pill { background:rgba(255,255,255,.12); border-radius:999px; padding:6px 10px; white-space:nowrap; }
+    canvas {
+      width:100%; height:100%;
+      border-radius:14px;
+      background: radial-gradient(120% 90% at 50% 20%, #274060 0%, #111927 80%);
+      display:block;
+      box-shadow:0 10px 30px rgba(0,0,0,.35);
+    }
+    .controls {
+      display:grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap:8px;
+    }
+    button {
+      border:none; border-radius:14px; color:#fff;
+      font-size: clamp(14px, 2.9vw, 18px);
+      font-weight:700; min-height:56px;
+      touch-action: manipulation;
+    }
+    #btnPull { background:#f25f5c; }
+    #btnWait { background:#247ba0; }
+    #btnReturn { background:#70c1b3; }
+    .subcontrols {
+      margin-top:8px;
+      display:grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap:8px;
+    }
+    .subcontrols button { min-height:42px; background:rgba(255,255,255,.15); }
+    #overlay {
+      position:absolute; inset:0;
+      display:grid; place-items:center;
+      pointer-events:none;
+    }
+    .card {
+      width:min(92vw, 560px);
+      background:rgba(0,0,0,.45);
+      border:1px solid rgba(255,255,255,.2);
+      border-radius:16px;
+      padding:16px;
+      backdrop-filter: blur(6px);
+      text-align:center;
+      pointer-events:auto;
+    }
+    .card h1{ margin:0 0 8px; font-size:clamp(20px, 4vw, 32px); }
+    .card p{ margin:6px 0; line-height:1.45; }
+    .small { opacity:.86; font-size:12px; }
+    .event {
+      position:absolute; left:50%; top:14%; transform:translateX(-50%);
+      background:rgba(0,0,0,.52); border:1px solid rgba(255,255,255,.2);
+      border-radius:12px; padding:8px 12px; text-align:center;
+      min-width:min(90vw,360px);
+      pointer-events:none;
+    }
+    .event strong { color:var(--accent); }
+    .hidden { display:none !important; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div class="topbar">
+      <div class="pill" id="seedLabel">seed: -</div>
+      <div class="pill" id="timeLabel">20.0s</div>
+      <div class="pill" id="statusLabel">title</div>
+    </div>
+    <div style="position:relative; min-height:260px;">
+      <canvas id="gameCanvas"></canvas>
+      <div id="overlay"></div>
+      <div id="eventBox" class="event hidden"></div>
+    </div>
+    <div>
+      <div class="controls">
+        <button id="btnPull">引く</button>
+        <button id="btnWait">待つ</button>
+        <button id="btnReturn">戻す</button>
+      </div>
+      <div class="subcontrols">
+        <button id="btnStart">スタート</button>
+        <button id="btnRestart">やり直し</button>
+        <button id="btnMute">🔊 音ON</button>
+        <button id="btnRandSeed">ランダムseed</button>
+      </div>
+      <div class="subcontrols">
+        <button id="btnCopySeed">seed URLコピー</button>
+        <button id="btnShareX">Xで共有</button>
+        <button id="btnCard">結果カード保存</button>
+        <button id="btnToday">今日のseed</button>
+      </div>
+    </div>
+  </div>
+<script>
+(() => {
+  'use strict';
+
+  // ===== 調整用パラメータ =====
+  const TUNE = {
+    gameSec: 20,
+    dtMax: 0.05,
+    pullBoundaryPerSec: 0.17,
+    waitBoundaryDecayPerSec: 0.03,
+    returnBoundaryPerSec: 0.21,
+    reclaimBase: 0.05,
+    reclaimTwitchBoost: 0.12,
+    disturbanceDecay: 1.2,
+    pullDisturbancePerSec: 0.78,
+    waitSleepRecoverPerSec: 0.22,
+    returnSleepRecoverPerSec: 0.46,
+    disturbanceToSleepDrop: 0.24,
+    kDisturbanceToQ: 6.1,
+    penaltyPow: 1.7,
+    eventCount: 3,
+    eventShowSec: 2.2,
+  };
+
+  // ===== 乱数（seed固定） =====
+  function hashStringToInt(str) {
+    let h = 2166136261 >>> 0;
+    for (let i = 0; i < str.length; i++) {
+      h ^= str.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return h >>> 0;
+  }
+  function mulberry32(a) {
+    return function() {
+      let t = a += 0x6D2B79F5;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const lerp = (a,b,t) => a + (b-a)*t;
+
+  // ===== データ =====
+  const TITLES = [
+    { tier:'S', title:'羽毛神の同調者', line:'ぬくもりと優しさ、どちらも満点。' },
+    { tier:'S', title:'夜明けの気配り王', line:'奪いすぎず、譲りすぎず。完璧。' },
+    { tier:'S', title:'布団境界の詩人', line:'境界線に美学が宿っている。' },
+    { tier:'S', title:'無音寝室マスター', line:'相手を起こさず暖かく眠れた。' },
+    { tier:'S', title:'ぬくぬく外交官', line:'交渉なき平和を実現した夜。' },
+    { tier:'S', title:'睡眠守護騎士', line:'朝の機嫌まで守る優しい名手。' },
+    { tier:'A', title:'布団シェア上手', line:'ほぼ理想の配分、あと一歩で伝説。' },
+    { tier:'A', title:'夜更けのバランサー', line:'空気を読みながら暖を確保。' },
+    { tier:'A', title:'寝相トレーダー', line:'細かい読み合いが光った。' },
+    { tier:'A', title:'ぬくもり最適化係', line:'ちゃんと温かく、ちゃんと静か。' },
+    { tier:'A', title:'静かな勝ち筋の人', line:'派手さはないが結果は良い。' },
+    { tier:'A', title:'深夜の良識派', line:'朝の会話がやさしくなるプレイ。' },
+    { tier:'B', title:'ふつうに優秀', line:'無難にうまくやれた夜。' },
+    { tier:'B', title:'やや控えめストライカー', line:'攻めを抑えて安定を取った。' },
+    { tier:'B', title:'半分名人', line:'読みは当たるが、少し欲張り。' },
+    { tier:'B', title:'夜の調停者', line:'たまの引きすぎはご愛嬌。' },
+    { tier:'B', title:'こたつ心の持ち主', line:'ぬくもり重視でも配慮はある。' },
+    { tier:'B', title:'及第点パートナー', line:'朝の空気はだいたい平和。' },
+    { tier:'C', title:'ちょい引っぱり隊', line:'悪くないけど、相手が少し眠そう。' },
+    { tier:'C', title:'深夜の自己都合派', line:'暖かさは確保、配慮は次回へ。' },
+    { tier:'C', title:'寝返り誘発士', line:'ピク…を見逃しがちだった。' },
+    { tier:'C', title:'境界線オーバーラン', line:'あと少しの我慢でAだった。' },
+    { tier:'C', title:'惜しいふとん運び', line:'技術はある。空気読みが課題。' },
+    { tier:'C', title:'朝の言い訳準備中', line:'「寒かったんだもん」は通じるか。' },
+    { tier:'D', title:'ふとん独占見習い', line:'勝った気はするが朝が怖い。' },
+    { tier:'D', title:'睡眠クラッシャー予備軍', line:'相手のZzzが細すぎた。' },
+    { tier:'D', title:'夜の強引ドライバー', line:'急ハンドル多めの操作だった。' },
+    { tier:'D', title:'小物音メーカー', line:'ガサッ…で空気が凍った。' },
+    { tier:'D', title:'寝室トラブル係', line:'明日はコーヒーを淹れよう。' },
+    { tier:'D', title:'布団会議・要招集', line:'次回は「戻す」を思い出して。' },
+  ];
+
+  const EVENTS = [
+    { id:'cat', name:'ねこが乗ってきた', hint:'重みで布団がずれる…', durSec:4.5, effects:{ reclaim:+0.05, sleep:+0.05, twitch:+0.08, disturbance:+0.04 } },
+    { id:'cold', name:'冷気がしのびこむ', hint:'つい引きたくなる寒さ', durSec:5.0, effects:{ reclaim:-0.03, sleep:-0.06, twitch:+0.06, disturbance:+0.08 } },
+    { id:'sniffle', name:'相手がむにゃ…', hint:'浅い眠り、刺激に注意', durSec:4.0, effects:{ reclaim:+0.02, sleep:-0.09, twitch:+0.20, disturbance:+0.10 } },
+    { id:'heater', name:'暖房がちょうど良い', hint:'待つと回復しやすい', durSec:4.2, effects:{ reclaim:-0.02, sleep:+0.09, twitch:-0.10, disturbance:-0.04 } },
+    { id:'roll', name:'寝返りの予兆', hint:'ピク…今引くのは危険', durSec:3.8, effects:{ reclaim:+0.06, sleep:-0.03, twitch:+0.28, disturbance:+0.02 } },
+    { id:'dream', name:'いい夢を見ている', hint:'静かにすれば深く眠る', durSec:4.4, effects:{ reclaim:-0.03, sleep:+0.12, twitch:-0.14, disturbance:-0.05 } },
+    { id:'ping', name:'通知音が遠くで鳴る', hint:'小さな物音が刺さる夜', durSec:3.6, effects:{ reclaim:+0.01, sleep:-0.04, twitch:+0.15, disturbance:+0.12 } },
+    { id:'stretch', name:'相手がのびをした', hint:'布団の位置がふらつく', durSec:4.8, effects:{ reclaim:+0.09, sleep:+0.01, twitch:+0.12, disturbance:+0.02 } },
+    { id:'calm', name:'雨音が心地いい', hint:'戻すと評価が伸びるかも', durSec:4.6, effects:{ reclaim:-0.04, sleep:+0.10, twitch:-0.08, disturbance:-0.03 } },
+    { id:'itch', name:'布団がちょっともぞもぞ', hint:'小さく調整するのが吉', durSec:3.9, effects:{ reclaim:+0.04, sleep:-0.02, twitch:+0.09, disturbance:+0.06 } },
+  ];
+
+  // ===== DOM =====
+  const canvas = document.getElementById('gameCanvas');
+  const ctx = canvas.getContext('2d');
+  const overlay = document.getElementById('overlay');
+  const eventBox = document.getElementById('eventBox');
+  const seedLabel = document.getElementById('seedLabel');
+  const timeLabel = document.getElementById('timeLabel');
+  const statusLabel = document.getElementById('statusLabel');
+
+  const btnPull = document.getElementById('btnPull');
+  const btnWait = document.getElementById('btnWait');
+  const btnReturn = document.getElementById('btnReturn');
+  const btnStart = document.getElementById('btnStart');
+  const btnRestart = document.getElementById('btnRestart');
+  const btnMute = document.getElementById('btnMute');
+  const btnRandSeed = document.getElementById('btnRandSeed');
+  const btnCopySeed = document.getElementById('btnCopySeed');
+  const btnShareX = document.getElementById('btnShareX');
+  const btnCard = document.getElementById('btnCard');
+  const btnToday = document.getElementById('btnToday');
+
+  // ===== 状態 =====
+  const defaultSeed = getTodaySeed();
+  const url = new URL(location.href);
+  let seed = (url.searchParams.get('seed') || defaultSeed).replace(/[^0-9A-Za-z_-]/g,'').slice(0,24) || defaultSeed;
+  let rng = mulberry32(hashStringToInt(seed));
+
+  const state = {
+    mode: 'title',
+    timeLeft: TUNE.gameSec,
+    boundary: 0.5,
+    sleepDepth: 0.76,
+    disturbance: 0.0,
+    disturbanceTotal: 0.0,
+    reclaim: TUNE.reclaimBase,
+    twitch: 0.15,
+    input: 'wait',
+    eventTimeline: [],
+    activeEvent: null,
+    eventDisplayTimer: 0,
+    eventIndex: 0,
+    score: null,
+    titlePick: null,
+    floaty: [],
+    animTime: 0,
+  };
+
+  // ===== Audio =====
+  let audioCtx = null;
+  let muted = false;
+  function ensureAudio() {
+    if (muted) return null;
+    if (!audioCtx) {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    return audioCtx;
+  }
+  function beep(type='sine', f=320, d=0.08, vol=0.03) {
+    if (muted) return;
+    const ac = ensureAudio();
+    if (!ac) return;
+    const o = ac.createOscillator();
+    const g = ac.createGain();
+    o.type = type;
+    o.frequency.value = f;
+    g.gain.value = 0;
+    g.gain.linearRampToValueAtTime(vol, ac.currentTime + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + d);
+    o.connect(g); g.connect(ac.destination);
+    o.start(); o.stop(ac.currentTime + d + 0.01);
+  }
+
+  function getTodaySeed() {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth()+1).padStart(2,'0');
+    const day = String(d.getDate()).padStart(2,'0');
+    return `${y}${m}${day}`;
+  }
+
+  function setSeed(newSeed) {
+    seed = newSeed;
+    rng = mulberry32(hashStringToInt(seed));
+    const u = new URL(location.href);
+    u.searchParams.set('seed', seed);
+    history.replaceState(null, '', u.toString());
+    seedLabel.textContent = `seed: ${seed}`;
+  }
+
+  function makeRandomSeed() {
+    const t = Date.now().toString(36).toUpperCase();
+    return `${getTodaySeed()}-${t.slice(-4)}`;
+  }
+
+  function shuffleBySeed(arr, seedText) {
+    const r = mulberry32(hashStringToInt(seedText));
+    const out = arr.slice();
+    for (let i = out.length - 1; i > 0; i--) {
+      const j = Math.floor(r() * (i + 1));
+      [out[i], out[j]] = [out[j], out[i]];
+    }
+    return out;
+  }
+
+  function prepareEvents() {
+    const picks = shuffleBySeed(EVENTS, `${seed}-events`).slice(0, TUNE.eventCount);
+    const spacing = TUNE.gameSec / (TUNE.eventCount + 1);
+    state.eventTimeline = picks.map((ev, i) => ({
+      ...ev,
+      triggerAt: spacing * (i + 1)
+    }));
+    state.eventIndex = 0;
+    state.activeEvent = null;
+    state.eventDisplayTimer = 0;
+  }
+
+  function resetRun() {
+    rng = mulberry32(hashStringToInt(seed));
+    state.mode = 'title';
+    state.timeLeft = TUNE.gameSec;
+    state.boundary = 0.5;
+    state.sleepDepth = 0.76;
+    state.disturbance = 0;
+    state.disturbanceTotal = 0;
+    state.reclaim = TUNE.reclaimBase;
+    state.twitch = 0.15;
+    state.input = 'wait';
+    state.score = null;
+    state.titlePick = null;
+    state.animTime = 0;
+    state.floaty = [];
+    prepareEvents();
+    showTitleOverlay();
+  }
+
+  function startGame() {
+    ensureAudio();
+    state.mode = 'playing';
+    state.timeLeft = TUNE.gameSec;
+    state.boundary = 0.5;
+    state.sleepDepth = 0.76;
+    state.disturbance = 0;
+    state.disturbanceTotal = 0;
+    state.reclaim = TUNE.reclaimBase;
+    state.twitch = 0.15;
+    state.input = 'wait';
+    state.score = null;
+    state.titlePick = null;
+    state.animTime = 0;
+    state.floaty = [];
+    prepareEvents();
+    hideOverlay();
+    beep('triangle', 420, 0.08, 0.035);
+  }
+
+  function endGame() {
+    state.mode = 'result';
+    const B = Math.round(state.boundary * 100);
+    const Q = Math.round(clamp(100 - state.disturbanceTotal * TUNE.kDisturbanceToQ, 0, 100));
+    const penalty = Q >= 75 ? 1 : Math.pow(Q / 75, TUNE.penaltyPow);
+    const finalScore = Math.round(B * penalty);
+
+    let tier = 'D';
+    if (Q >= 85 && finalScore >= 82) tier = 'S';
+    else if (Q >= 75 && finalScore >= 66) tier = 'A';
+    else if (Q >= 60 && finalScore >= 48) tier = 'B';
+    else if (Q >= 45 && finalScore >= 28) tier = 'C';
+
+    const picks = TITLES.filter(t => t.tier === tier);
+    const idx = Math.floor(mulberry32(hashStringToInt(`${seed}-${B}-${Q}-${finalScore}`))() * picks.length);
+    const picked = picks[idx] || TITLES[0];
+
+    state.score = { B, Q, finalScore, tier };
+    state.titlePick = picked;
+    showResultOverlay();
+    beep('sine', 280, 0.2, 0.04);
+  }
+
+  function showEvent(ev) {
+    eventBox.classList.remove('hidden');
+    eventBox.innerHTML = `<div><strong>${ev.name}</strong></div><div class="small">${ev.hint}</div>`;
+    state.eventDisplayTimer = TUNE.eventShowSec;
+  }
+
+  function applyEventEffect(ev, dt) {
+    const e = ev.effects;
+    state.reclaim = clamp(state.reclaim + e.reclaim * dt / ev.durSec, 0, 0.28);
+    state.sleepDepth = clamp(state.sleepDepth + e.sleep * dt / ev.durSec, 0, 1);
+    state.twitch = clamp(state.twitch + e.twitch * dt / ev.durSec, 0, 1);
+    state.disturbance = clamp(state.disturbance + e.disturbance * dt / ev.durSec, 0, 3);
+  }
+
+  function updatePlaying(dt) {
+    state.timeLeft -= dt;
+    if (state.timeLeft <= 0) {
+      state.timeLeft = 0;
+      endGame();
+      return;
+    }
+
+    const elapsed = TUNE.gameSec - state.timeLeft;
+    const nextEv = state.eventTimeline[state.eventIndex];
+    if (nextEv && elapsed >= nextEv.triggerAt) {
+      state.activeEvent = { ...nextEv, left: nextEv.durSec };
+      state.eventIndex++;
+      showEvent(nextEv);
+      beep('square', 180, 0.06, 0.02);
+    }
+
+    if (state.activeEvent) {
+      applyEventEffect(state.activeEvent, dt);
+      state.activeEvent.left -= dt;
+      if (state.activeEvent.left <= 0) state.activeEvent = null;
+    }
+
+    if (state.eventDisplayTimer > 0) {
+      state.eventDisplayTimer -= dt;
+      if (state.eventDisplayTimer <= 0) eventBox.classList.add('hidden');
+    }
+
+    let boundaryDelta = 0;
+    if (state.input === 'pull') {
+      boundaryDelta += TUNE.pullBoundaryPerSec;
+      const risk = 1 + state.twitch * 1.3;
+      state.disturbance += TUNE.pullDisturbancePerSec * dt * risk;
+      if (state.twitch > 0.72 && Math.random() < 0.06) spawnFloat('ピク…', '#ffd166');
+    } else if (state.input === 'wait') {
+      boundaryDelta -= TUNE.waitBoundaryDecayPerSec;
+      state.sleepDepth += TUNE.waitSleepRecoverPerSec * dt * (1 - state.disturbance * 0.25);
+      if (Math.random() < 0.012) spawnFloat('すぅ…', '#bde0fe');
+    } else if (state.input === 'return') {
+      boundaryDelta -= TUNE.returnBoundaryPerSec;
+      state.sleepDepth += TUNE.returnSleepRecoverPerSec * dt;
+      state.disturbance -= 0.35 * dt;
+      if (Math.random() < 0.02) spawnFloat('むにゃ…', '#caffbf');
+    }
+
+    const reclaimNow = state.reclaim + state.twitch * TUNE.reclaimTwitchBoost;
+    boundaryDelta -= reclaimNow * dt;
+
+    state.boundary = clamp(state.boundary + boundaryDelta * dt, 0.02, 0.98);
+
+    state.disturbance = Math.max(0, state.disturbance - TUNE.disturbanceDecay * dt);
+    state.sleepDepth = clamp(state.sleepDepth - state.disturbance * TUNE.disturbanceToSleepDrop * dt, 0, 1);
+    state.disturbanceTotal += state.disturbance * dt;
+
+    state.twitch = clamp(state.twitch + (0.35 - state.sleepDepth) * 0.38 * dt - 0.12 * dt, 0, 1);
+
+    if (Math.random() < 0.008) {
+      const f = state.sleepDepth > 0.55 ? 'すぅ…' : '…';
+      spawnFloat(f, state.sleepDepth > 0.55 ? '#ade8f4' : '#ffadad');
+    }
+
+    if (state.input === 'pull' && Math.random() < 0.014) beep('triangle', 220 + state.twitch*180, 0.03, 0.02);
+  }
+
+  function spawnFloat(text, color) {
+    state.floaty.push({ text, color, x: 0.62 + rng()*0.25, y: 0.36 + rng()*0.2, life: 1.2 });
+  }
+
+  function updateFloaty(dt) {
+    for (const f of state.floaty) {
+      f.life -= dt;
+      f.y -= dt * 0.08;
+    }
+    state.floaty = state.floaty.filter(f => f.life > 0);
+  }
+
+  function showTitleOverlay() {
+    overlay.innerHTML = `<div class="card">
+      <h1>ふとん空気読みバトル</h1>
+      <p>20秒で「引く / 待つ / 戻す」を使い分けよう。</p>
+      <p>取りすぎると相手の睡眠の質が下がって、翌朝評価が落ちます。</p>
+      <p class="small">ヒント: ピク…（寝返り予兆）が強いときの「引く」は危険！</p>
+    </div>`;
+  }
+  function showResultOverlay() {
+    const s = state.score, t = state.titlePick;
+    overlay.innerHTML = `<div class="card">
+      <h1>翌朝評価: ${t.tier}「${t.title}」</h1>
+      <p>${t.line}</p>
+      <p><strong>占有率 B:</strong> ${s.B}% ／ <strong>睡眠の質 Q:</strong> ${s.Q} ／ <strong>最終:</strong> ${s.finalScore}</p>
+      <p class="small">seed: ${seed}</p>
+    </div>`;
+  }
+  function hideOverlay() { overlay.innerHTML = ''; }
+
+  function drawScene() {
+    const w = canvas.width / dpr;
+    const h = canvas.height / dpr;
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    ctx.save();
+    ctx.scale(dpr, dpr);
+
+    const bedX = w * 0.08;
+    const bedY = h * 0.3;
+    const bedW = w * 0.84;
+    const bedH = h * 0.45;
+
+    ctx.fillStyle = 'rgba(255,255,255,0.08)';
+    roundRect(ctx, bedX, bedY, bedW, bedH, 20); ctx.fill();
+
+    const split = bedX + bedW * state.boundary;
+    ctx.fillStyle = 'rgba(255,209,102,0.35)';
+    roundRect(ctx, bedX, bedY + 6, split - bedX, bedH - 12, 16); ctx.fill();
+    ctx.fillStyle = 'rgba(173,232,244,0.22)';
+    roundRect(ctx, split, bedY + 6, bedX + bedW - split, bedH - 12, 16); ctx.fill();
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(split, bedY + 10); ctx.lineTo(split, bedY + bedH - 10); ctx.stroke();
+
+    const bob = Math.sin(state.animTime * 2.8) * 2;
+    drawSleeper(bedX + bedW*0.27, bedY + bedH*0.53 + bob*0.5, '#ffb4a2', false);
+    drawSleeper(bedX + bedW*0.73, bedY + bedH*0.53 - bob*0.4, '#bde0fe', true);
+
+    // subtle hints
+    const zStrength = state.sleepDepth;
+    ctx.fillStyle = `rgba(255,255,255,${0.25 + zStrength*0.55})`;
+    ctx.font = `${Math.round(13 + zStrength*12)}px sans-serif`;
+    ctx.fillText('Zzz', bedX + bedW*0.76, bedY + bedH*0.25);
+    if (state.twitch > 0.62) {
+      ctx.fillStyle = `rgba(255,209,102,${0.35 + (state.twitch-0.62)})`;
+      ctx.font = '16px sans-serif';
+      ctx.fillText('ピク…', bedX + bedW*0.67, bedY + bedH*0.2);
+    }
+
+    for (const f of state.floaty) {
+      ctx.globalAlpha = clamp(f.life,0,1);
+      ctx.fillStyle = f.color;
+      ctx.font = '14px sans-serif';
+      ctx.fillText(f.text, bedX + bedW*f.x, bedY + bedH*f.y);
+      ctx.globalAlpha = 1;
+    }
+
+    drawMiniReadouts(w, h);
+    ctx.restore();
+  }
+
+  function drawMiniReadouts(w,h) {
+    const x = w*0.08, y = h*0.82;
+    const b = Math.round(state.boundary * 100);
+    const qProxy = Math.round(clamp(100 - state.disturbanceTotal*TUNE.kDisturbanceToQ, 0, 100));
+    ctx.fillStyle='rgba(0,0,0,0.35)';
+    roundRect(ctx, x, y, w*0.84, h*0.12, 10); ctx.fill();
+    ctx.fillStyle='rgba(255,255,255,0.9)';
+    ctx.font='13px sans-serif';
+    ctx.fillText(`占有 ${b}%`, x+12, y+20);
+    ctx.fillText(`睡眠の質(推定) ${qProxy}`, x+12, y+38);
+    ctx.fillText(`空気読み: ${state.twitch>0.7?'要注意':state.twitch>0.45?'ふつう':'安定'}`, x+12, y+56);
+  }
+
+  function drawSleeper(x,y,color,flip=false) {
+    ctx.save();
+    ctx.translate(x,y);
+    if (flip) ctx.scale(-1,1);
+    ctx.fillStyle = color;
+    ctx.beginPath(); ctx.ellipse(0,0,34,22,0,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#ffe5d9';
+    ctx.beginPath(); ctx.arc(-26,-2,10,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.38)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(-30,-1); ctx.lineTo(-24,-1); ctx.stroke();
+    ctx.restore();
+  }
+
+  function roundRect(c,x,y,w,h,r){
+    c.beginPath();
+    c.moveTo(x+r,y);
+    c.arcTo(x+w,y,x+w,y+h,r);
+    c.arcTo(x+w,y+h,x,y+h,r);
+    c.arcTo(x,y+h,x,y,r);
+    c.arcTo(x,y,x+w,y,r);
+    c.closePath();
+  }
+
+  // ===== Card export =====
+  function saveResultCard() {
+    if (!state.score || !state.titlePick) {
+      alert('先に1プレイして結果を出してください。');
+      return;
+    }
+    const c = document.createElement('canvas');
+    c.width = 1080; c.height = 1080;
+    const g = c.getContext('2d');
+    const grad = g.createLinearGradient(0,0,1080,1080);
+    grad.addColorStop(0,'#1d3557'); grad.addColorStop(1,'#2a9d8f');
+    g.fillStyle = grad; g.fillRect(0,0,1080,1080);
+    g.fillStyle = 'rgba(255,255,255,0.12)';
+    g.fillRect(80,120,920,760);
+    g.fillStyle = '#fff';
+    g.font = 'bold 66px sans-serif'; g.fillText('ふとん空気読みバトル', 120, 220);
+    g.font = 'bold 76px sans-serif'; g.fillText(`翌朝評価 ${state.titlePick.tier}`, 120, 330);
+    g.font = 'bold 58px sans-serif'; g.fillText(`「${state.titlePick.title}」`, 120, 420);
+    g.font = '44px sans-serif'; g.fillText(state.titlePick.line, 120, 500);
+    g.font = 'bold 64px sans-serif'; g.fillText(`占有率 B: ${state.score.B}%`, 120, 620);
+    g.fillText(`睡眠の質 Q: ${state.score.Q}`, 120, 710);
+    g.fillText(`Final: ${state.score.finalScore}`, 120, 800);
+    g.font = '36px sans-serif'; g.fillText(`seed: ${seed}`, 120, 890);
+    g.fillText('#ふとん空気読み #ミニゲーム', 120, 960);
+
+    c.toBlob(blob => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `futon_result_${seed}.png`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1500);
+    }, 'image/png');
+  }
+
+  function getShareUrl(withResult = false) {
+    const u = new URL(location.href);
+    u.searchParams.set('seed', seed);
+    if (withResult && state.score && state.titlePick) {
+      u.searchParams.set('b', state.score.B);
+      u.searchParams.set('q', state.score.Q);
+      u.searchParams.set('tier', state.titlePick.tier);
+    }
+    return u.toString();
+  }
+
+  async function copySeedUrl() {
+    const text = getShareUrl(false);
+    try {
+      await navigator.clipboard.writeText(text);
+      btnCopySeed.textContent = 'コピー完了';
+      setTimeout(() => btnCopySeed.textContent = 'seed URLコピー', 900);
+    } catch {
+      prompt('このURLをコピーしてください', text);
+    }
+  }
+
+  function shareX() {
+    const s = state.score;
+    const summary = s
+      ? `占有${s.B}% / 睡眠Q${s.Q} / ${state.titlePick.tier}「${state.titlePick.title}」`
+      : '空気を読みつつ布団を引く20秒ゲーム';
+    const text = `ふとん空気読みバトル🛌\n${summary}\n#ふとん空気読み #ミニゲーム`;
+    const intent = new URL('https://twitter.com/intent/tweet');
+    intent.searchParams.set('text', text);
+    intent.searchParams.set('url', getShareUrl(true));
+    window.open(intent.toString(), '_blank', 'noopener,noreferrer');
+  }
+
+  // ===== input =====
+  function bindActionButton(btn, action) {
+    const onDown = (e) => {
+      e.preventDefault();
+      if (state.mode !== 'playing') return;
+      ensureAudio();
+      state.input = action;
+      if (action === 'pull') beep('sawtooth', 250, 0.03, 0.022);
+      if (action === 'return') beep('sine', 520, 0.04, 0.02);
+    };
+    const onUp = (e) => {
+      e.preventDefault();
+      if (state.mode === 'playing') state.input = 'wait';
+    };
+    btn.addEventListener('pointerdown', onDown, {passive:false});
+    btn.addEventListener('pointerup', onUp, {passive:false});
+    btn.addEventListener('pointercancel', onUp, {passive:false});
+    btn.addEventListener('contextmenu', e => e.preventDefault());
+  }
+  bindActionButton(btnPull, 'pull');
+  bindActionButton(btnWait, 'wait');
+  bindActionButton(btnReturn, 'return');
+
+  btnStart.addEventListener('click', () => startGame());
+  btnRestart.addEventListener('click', () => resetRun());
+  btnMute.addEventListener('click', () => {
+    muted = !muted;
+    btnMute.textContent = muted ? '🔈 音OFF' : '🔊 音ON';
+    if (muted && audioCtx) audioCtx.suspend();
+    else ensureAudio();
+  });
+  btnRandSeed.addEventListener('click', () => { setSeed(makeRandomSeed()); resetRun(); });
+  btnToday.addEventListener('click', () => { setSeed(getTodaySeed()); resetRun(); });
+  btnCopySeed.addEventListener('click', copySeedUrl);
+  btnShareX.addEventListener('click', shareX);
+  btnCard.addEventListener('click', saveResultCard);
+
+  // stop accidental scroll/zoom
+  const block = e => e.preventDefault();
+  document.addEventListener('touchmove', block, {passive:false});
+  document.addEventListener('gesturestart', block, {passive:false});
+
+  // ===== loop =====
+  let dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
+  function fitCanvas() {
+    const r = canvas.getBoundingClientRect();
+    dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
+    canvas.width = Math.floor(r.width * dpr);
+    canvas.height = Math.floor(r.height * dpr);
+  }
+  addEventListener('resize', fitCanvas);
+  fitCanvas();
+  setSeed(seed);
+  resetRun();
+
+  let last = performance.now();
+  function tick(now) {
+    let dt = (now - last) / 1000;
+    last = now;
+    dt = Math.min(dt, TUNE.dtMax);
+    state.animTime += dt;
+
+    if (state.mode === 'playing') updatePlaying(dt);
+    updateFloaty(dt);
+
+    timeLabel.textContent = `${state.timeLeft.toFixed(1)}s`;
+    statusLabel.textContent = state.mode;
+
+    drawScene();
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+})();
+</script>
+</body>
+</html>
