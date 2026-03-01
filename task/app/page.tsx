@@ -22,8 +22,6 @@ const TABS: { key: FilterKey; label: string }[] = [
 
 const priorityOrder: Record<Priority, number> = { high: 3, medium: 2, low: 1 };
 const priorityLabel: Record<Priority, string> = { high: '高', medium: '中', low: '低' };
-const SYSTEM_VERSION = 'v1.0.2';
-const LAST_UPDATED = '2026-03-01';
 
 function todayLocal(): string {
   const d = new Date();
@@ -330,12 +328,7 @@ export default function Page() {
             </div>
           </div>
 
-          <div className="md:mt-4">
-            <button onClick={createTask} disabled={saving} className="fixed bottom-6 right-6 md:static rounded-full md:rounded-xl bg-gradient-to-r from-accent to-accent2 px-5 py-3 font-bold text-black shadow-xl no-zoom">＋ タスク追加</button>
-            <p className="fixed bottom-1 right-6 text-[11px] text-purple-300 md:static md:mt-2 md:text-xs">
-              バージョン: {SYSTEM_VERSION} / 最終更新日: {LAST_UPDATED}
-            </p>
-          </div>
+          <button onClick={createTask} disabled={saving} className="fixed bottom-6 right-6 md:static md:mt-4 rounded-full md:rounded-xl bg-gradient-to-r from-accent to-accent2 px-5 py-3 font-bold text-black shadow-xl no-zoom">＋ タスク追加</button>
         </section>
 
         <section className="rounded-2xl border border-purple-500/30 bg-panel p-4">
