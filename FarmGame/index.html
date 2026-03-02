@@ -1,0 +1,439 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>もふねこファーム</title>
+  <style>
+    :root {
+      --bg: #F7EEF2;
+      --surface: #fff;
+      --text: #2B2B2B;
+      --muted: #6B6B6B;
+      --border: rgba(43,43,43,0.1);
+      --primary: #77A1D9;
+      --accent: #F2AEC1;
+      --success: #B6E7F2;
+      --radius: 14px;
+      --shadow: 0 6px 16px rgba(0,0,0,0.08);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Noto Sans JP", "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+    .app { max-width: 420px; margin: 0 auto; min-height: 100vh; padding: 12px; }
+    .card { background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); border: 1px solid var(--border); }
+    .topbar { display: grid; grid-template-columns: 1fr auto; gap: 8px; padding: 10px; margin-bottom: 10px; }
+    .tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+    .tab-btn, button {
+      border: 1px solid var(--border); border-radius: 10px; background: white; color: var(--text);
+      padding: 8px 10px; font-size: 13px;
+    }
+    button.primary, .tab-btn.active { background: var(--primary); color: #fff; border-color: transparent; }
+    button.accent { background: var(--accent); color: #fff; border-color: transparent; }
+    button:disabled { opacity: 0.5; }
+    .stat { display:flex; gap:6px; align-items:center; justify-content:flex-end; flex-wrap: wrap; }
+    .badge { background:#fff; border:1px solid var(--border); border-radius:999px; padding:6px 10px; font-size:13px; }
+    .screen { display: none; }
+    .screen.active { display: block; }
+    .grid-wrap { padding: 10px; margin-bottom: 10px; }
+    .grid { display: grid; gap: 8px; }
+    .tile { aspect-ratio: 1/1; border-radius: 12px; border: 1px solid var(--border); padding: 6px; font-size: 11px; cursor: pointer; display:flex; align-items:center; justify-content:center; text-align:center; }
+    .tile.empty { background: #f3e2cf; }
+    .tile.growing { background: #f3f7cf; }
+    .tile.ready { background: var(--success); transform: scale(0.98); animation: pop 120ms ease-out forwards; }
+    @keyframes pop { from { transform: scale(0.98);} to { transform: scale(1);} }
+    .row { padding: 10px; margin-bottom: 10px; }
+    .crop-list { display: flex; overflow-x: auto; gap: 8px; margin-bottom: 8px; }
+    .crop-item { min-width: 130px; padding: 8px; border-radius: 10px; border:1px solid var(--border); background:#fff; }
+    .crop-item.active { border-color: var(--primary); background:#f3f8ff; }
+    .shop-item, .cat-item, .setting-item { padding: 10px; border-top:1px solid var(--border); }
+    .shop-item:first-child,.cat-item:first-child,.setting-item:first-child { border-top:0; }
+    .muted { color: var(--muted); font-size: 12px; }
+    .modal-backdrop { position: fixed; inset:0; background: rgba(0,0,0,0.35); display:none; align-items:center; justify-content:center; padding: 16px; }
+    .modal-backdrop.show { display:flex; }
+    .modal { max-width: 360px; width:100%; padding: 14px; }
+    .inline { display:flex; gap: 8px; align-items:center; flex-wrap:wrap; }
+    input[type=file] { font-size: 12px; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="topbar card">
+      <div class="tabs" id="tabs"></div>
+      <div class="stat">
+        <span class="badge" id="coins">🪙 0</span>
+        <span class="badge" id="fuel">🐾 0</span>
+      </div>
+    </div>
+
+    <section id="farm" class="screen active">
+      <div class="grid-wrap card">
+        <div class="grid" id="grid"></div>
+      </div>
+      <div class="row card">
+        <div class="crop-list" id="cropList"></div>
+        <div class="inline">
+          <button id="modeSingle" class="primary">1マス植え</button>
+          <button id="plantAll" class="accent">まとめ植え</button>
+        </div>
+        <p class="muted">空いているマスにまとめて植えられるよ</p>
+      </div>
+      <div class="row card" id="catStatus"></div>
+    </section>
+
+    <section id="shop" class="screen">
+      <div class="card" id="shopContent"></div>
+    </section>
+
+    <section id="cats" class="screen">
+      <div class="card" id="catsContent"></div>
+    </section>
+
+    <section id="settings" class="screen">
+      <div class="card" id="settingsContent"></div>
+    </section>
+  </div>
+
+  <div class="modal-backdrop" id="offlineModal">
+    <div class="modal card">
+      <h3>おかえり！</h3>
+      <p id="offlineText"></p>
+      <button class="primary" id="offlineOk">OK</button>
+    </div>
+  </div>
+
+<script>
+(() => {
+  const SAVE_KEY = 'mofuneko-farm-save-v1';
+  const MAX_OFFLINE_MS = 8 * 60 * 60 * 1000;
+  const crops = [
+    { id:'carrot', name:'にんじん', growMinutes:5, seedCost:2, sellPrice:6, unlockByGridExpansions:0 },
+    { id:'strawberry', name:'いちご', growMinutes:15, seedCost:6, sellPrice:18, unlockByGridExpansions:0 },
+    { id:'potato', name:'じゃがいも', growMinutes:30, seedCost:14, sellPrice:40, unlockByGridExpansions:1 },
+    { id:'tomato', name:'トマト', growMinutes:60, seedCost:32, sellPrice:90, unlockByGridExpansions:2 },
+    { id:'pumpkin', name:'かぼちゃ', growMinutes:120, seedCost:78, sellPrice:210, unlockByGridExpansions:3 },
+    { id:'grape', name:'ぶどう', growMinutes:240, seedCost:200, sellPrice:520, unlockByGridExpansions:4 },
+  ];
+  const gridUpgradeCosts = [200, 450, 900, 1600, 2600, 4000];
+  const catUpgradeCosts = [300, 900, 1800, 3200];
+  const harvestIntervals = [10,9,8,7,6];
+  const sellCap = [10,12,14,16,18];
+  const fuelPacks = [
+    {name:'Small', fuel:50, cost:100},
+    {name:'Medium', fuel:200, cost:360},
+    {name:'Large', fuel:500, cost:800},
+  ];
+
+  const defaultTile = () => ({ state:'empty' });
+  const defaultState = () => ({
+    version:1, coins:300, fuel:50, lastSeen:Date.now(),
+    gridRows:3, gridCols:4, grid:Array.from({length:12}, defaultTile),
+    warehouse:{},
+    cats:{
+      harvester:{ role:'harvester', level:1, enabled:true },
+      seller:{ role:'seller', level:1, enabled:true }
+    },
+    unlocks:{ gridExpansions:0 },
+    settings:{ guideEnabled:true, bgmEnabled:false, seEnabled:true },
+    ui:{ selectedCropId:'carrot', activeTab:'farm' }
+  });
+
+  let state = load();
+  let lastOfflineSummary = null;
+
+  function clampState(s) {
+    if (!s || s.version !== 1) return defaultState();
+    s.coins = Math.max(0, Number(s.coins)||0);
+    s.fuel = Math.max(0, Math.min(9999, Number(s.fuel)||0));
+    s.gridRows = Math.max(3, Math.min(5, Number(s.gridRows)||3));
+    s.gridCols = Math.max(4, Math.min(6, Number(s.gridCols)||4));
+    const len = s.gridRows * s.gridCols;
+    s.grid = Array.isArray(s.grid) ? s.grid.slice(0,len) : [];
+    while (s.grid.length < len) s.grid.push(defaultTile());
+    s.grid = s.grid.map(t => ({
+      state: ['empty','growing','ready'].includes(t?.state) ? t.state : 'empty',
+      cropId: t?.cropId,
+      plantedAt: Number(t?.plantedAt)||undefined,
+      readyAt: Number(t?.readyAt)||undefined,
+    }));
+    s.warehouse = s.warehouse && typeof s.warehouse === 'object' ? s.warehouse : {};
+    s.unlocks = s.unlocks || { gridExpansions:0 };
+    s.unlocks.gridExpansions = Math.max(0, Math.min(6, Number(s.unlocks.gridExpansions)||0));
+    s.settings = Object.assign({ guideEnabled:true, bgmEnabled:false, seEnabled:true }, s.settings || {});
+    s.ui = Object.assign({ selectedCropId:'carrot', activeTab:'farm' }, s.ui || {});
+    return s;
+  }
+
+  function save() { localStorage.setItem(SAVE_KEY, JSON.stringify(state)); }
+  function load() {
+    try {
+      const raw = localStorage.getItem(SAVE_KEY);
+      if (!raw) return defaultState();
+      return clampState(JSON.parse(raw));
+    } catch { return defaultState(); }
+  }
+
+  function getCrop(id) { return crops.find(c => c.id === id); }
+  function unlockedCrops() { return crops.filter(c => c.unlockByGridExpansions <= state.unlocks.gridExpansions); }
+
+  function expandGrid() {
+    if (state.gridRows >= 5 && state.gridCols >= 6) return false;
+    if (state.gridCols < 6) state.gridCols += 1;
+    else state.gridRows += 1;
+    const targetLen = state.gridRows * state.gridCols;
+    while (state.grid.length < targetLen) state.grid.push(defaultTile());
+    state.unlocks.gridExpansions = Math.min(6, state.unlocks.gridExpansions + 1);
+    return true;
+  }
+
+  function plantAt(i) {
+    const tile = state.grid[i];
+    const crop = getCrop(state.ui.selectedCropId);
+    if (!tile || tile.state !== 'empty' || !crop || state.coins < crop.seedCost) return false;
+    const now = Date.now();
+    state.coins -= crop.seedCost;
+    state.grid[i] = { state:'growing', cropId:crop.id, plantedAt:now, readyAt: now + crop.growMinutes*60000 };
+    return true;
+  }
+
+  function plantAll() {
+    let planted = 0;
+    for (let i=0;i<state.grid.length;i++) {
+      if (plantAt(i)) planted++;
+    }
+    return planted;
+  }
+
+  function recomputeReady(now) {
+    for (const tile of state.grid) {
+      if (tile.state === 'growing' && tile.readyAt && tile.readyAt <= now) tile.state = 'ready';
+    }
+  }
+
+  function harvestReady(limit) {
+    if (!state.cats.harvester.enabled || state.fuel <= 0) return {harvested:0, fuel:0};
+    const readyIndices = state.grid
+      .map((t, i) => ({t,i}))
+      .filter(({t}) => t.state === 'ready')
+      .sort((a,b) => (a.t.readyAt||0) - (b.t.readyAt||0));
+    const count = Math.min(limit, readyIndices.length, state.fuel);
+    for (let n=0;n<count;n++) {
+      const tile = state.grid[readyIndices[n].i];
+      const cropId = tile.cropId;
+      if (cropId) state.warehouse[cropId] = (state.warehouse[cropId]||0) + 1;
+      state.grid[readyIndices[n].i] = defaultTile();
+    }
+    state.fuel -= count;
+    return {harvested:count, fuel:count};
+  }
+
+  function sellOneAction() {
+    if (!state.cats.seller.enabled || state.fuel <= 0) return {sold:0, coins:0, fuel:0};
+    const sorted = Object.entries(state.warehouse)
+      .filter(([,qty]) => qty > 0)
+      .map(([cropId, qty]) => ({cropId, qty, crop: getCrop(cropId)}))
+      .filter(e => e.crop)
+      .sort((a,b) => b.crop.sellPrice - a.crop.sellPrice);
+    if (!sorted.length) return {sold:0, coins:0, fuel:0};
+    let remain = sellCap[state.cats.seller.level - 1];
+    let sold = 0;
+    let gain = 0;
+    for (const e of sorted) {
+      if (remain <= 0) break;
+      const take = Math.min(remain, state.warehouse[e.cropId]);
+      state.warehouse[e.cropId] -= take;
+      sold += take;
+      gain += take * e.crop.sellPrice;
+      remain -= take;
+    }
+    if (sold <= 0) return {sold:0, coins:0, fuel:0};
+    const fuelCost = Math.ceil(sold / 10);
+    if (state.fuel < fuelCost) return {sold:0, coins:0, fuel:0};
+    state.fuel -= fuelCost;
+    state.coins += gain;
+    return {sold, coins:gain, fuel:fuelCost};
+  }
+
+  function offlineProgress() {
+    const now = Date.now();
+    let elapsedMs = Math.max(0, now - (Number(state.lastSeen)||now));
+    elapsedMs = Math.min(elapsedMs, MAX_OFFLINE_MS);
+    const steps = Math.floor(elapsedMs / 60000);
+    let harvested=0, gain=0, fuel=0;
+    for (let i=1;i<=steps;i++) {
+      const stepNow = state.lastSeen + i*60000;
+      recomputeReady(stepNow);
+      const hLimit = Math.ceil(60 / harvestIntervals[state.cats.harvester.level - 1]);
+      const h = harvestReady(hLimit);
+      harvested += h.harvested; fuel += h.fuel;
+      for (let k=0;k<6;k++) {
+        const s = sellOneAction();
+        gain += s.coins; fuel += s.fuel;
+        if (s.sold === 0) break;
+      }
+    }
+    recomputeReady(now);
+    state.lastSeen = now;
+    lastOfflineSummary = { elapsedMs, harvested, gain, fuel };
+  }
+
+  function fmtDuration(ms) {
+    const min = Math.floor(ms/60000); return `${Math.floor(min/60)}時間${min%60}分`;
+  }
+
+  function render() {
+    save();
+    document.getElementById('coins').textContent = `🪙 ${Math.floor(state.coins)}`;
+    document.getElementById('fuel').textContent = `🐾 ${Math.floor(state.fuel)}`;
+
+    const tabs = ['farm','shop','cats','settings'];
+    const tabsEl = document.getElementById('tabs');
+    tabsEl.innerHTML = tabs.map(t => `<button class="tab-btn ${state.ui.activeTab===t?'active':''}" data-tab="${t}">${t.toUpperCase()}</button>`).join('');
+
+    tabs.forEach(id => document.getElementById(id).classList.toggle('active', state.ui.activeTab === id));
+
+    const grid = document.getElementById('grid');
+    grid.style.gridTemplateColumns = `repeat(${state.gridCols}, 1fr)`;
+    grid.innerHTML = state.grid.map((tile, i) => {
+      if (tile.state === 'empty') return `<button class="tile empty" data-i="${i}">空き</button>`;
+      if (tile.state === 'growing') {
+        const crop = getCrop(tile.cropId);
+        return `<button class="tile growing" data-i="${i}">${crop?.name||''}<br>育成中</button>`;
+      }
+      const crop = getCrop(tile.cropId);
+      return `<button class="tile ready" data-i="${i}">${crop?.name||''}<br>収穫可✨</button>`;
+    }).join('');
+
+    const cl = document.getElementById('cropList');
+    cl.innerHTML = unlockedCrops().map(c => `<button class="crop-item ${state.ui.selectedCropId===c.id?'active':''}" data-crop="${c.id}">
+      <strong>${c.name}</strong><div class="muted">${c.growMinutes}分 / 種${c.seedCost} / 売${c.sellPrice}</div></button>`).join('');
+
+    const hOn = state.cats.harvester.enabled && state.fuel>0;
+    const sOn = state.cats.seller.enabled && state.fuel>0;
+    document.getElementById('catStatus').innerHTML = `
+      <div class="inline"><strong>収穫猫:</strong> ${hOn ? '稼働中' : '燃料切れ / 停止'} Lv${state.cats.harvester.level}</div>
+      <div class="inline"><strong>販売猫:</strong> ${sOn ? '稼働中' : '燃料切れ / 停止'} Lv${state.cats.seller.level}</div>
+      ${state.fuel<=0 ? '<p class="muted">カリカリが足りないみたい…🐾 Shopで補給しよう</p>' : ''}
+    `;
+
+    document.getElementById('shopContent').innerHTML = `
+      <div class="shop-item"><strong>畑拡張</strong><div class="muted">現在: ${state.gridCols}×${state.gridRows}</div>
+      <button class="primary" id="buyExpand">拡張購入 (${gridUpgradeCosts[state.unlocks.gridExpansions] ?? 'MAX'})</button></div>
+      <div class="shop-item"><strong>燃料購入（カリカリ）</strong><div class="inline">${fuelPacks.map((p,idx)=>`<button data-fuel="${idx}">${p.name}<br>${p.fuel} / ${p.cost}🪙</button>`).join('')}</div></div>
+      <div class="shop-item"><strong>猫の強化</strong><div class="inline">
+        <button id="upHarv">収穫猫 Lv${state.cats.harvester.level}</button>
+        <button id="upSell">販売猫 Lv${state.cats.seller.level}</button>
+      </div><div class="muted">次Lvコスト: ${catUpgradeCosts[state.cats.harvester.level-1] ?? 'MAX'}</div></div>
+    `;
+
+    document.getElementById('catsContent').innerHTML = `
+      <div class="cat-item"><strong>収穫猫</strong><div class="muted">速度: ${harvestIntervals[state.cats.harvester.level-1]}秒/収穫</div>
+      <button id="toggleHarv">${state.cats.harvester.enabled ? 'ON' : 'OFF'}</button></div>
+      <div class="cat-item"><strong>販売猫</strong><div class="muted">1アクション: ${sellCap[state.cats.seller.level-1]}個</div>
+      <button id="toggleSell">${state.cats.seller.enabled ? 'ON' : 'OFF'}</button></div>
+    `;
+
+    const warehouseText = Object.entries(state.warehouse).filter(([,v])=>v>0).map(([k,v])=>`${getCrop(k)?.name||k}:${v}`).join(', ') || 'なし';
+    document.getElementById('settingsContent').innerHTML = `
+      <div class="setting-item"><strong>ガイド</strong> <button id="toggleGuide">${state.settings.guideEnabled?'ON':'OFF'}</button></div>
+      <div class="setting-item"><strong>音量</strong> BGM <button id="toggleBgm">${state.settings.bgmEnabled?'ON':'OFF'}</button> SE <button id="toggleSe">${state.settings.seEnabled?'ON':'OFF'}</button></div>
+      <div class="setting-item"><strong>倉庫</strong><div class="muted">${warehouseText}</div></div>
+      <div class="setting-item"><strong>セーブ</strong><div class="inline"><button id="exportBtn">エクスポート</button><input id="importFile" type="file" accept="application/json"></div></div>
+      <div class="setting-item"><button id="resetBtn">リセット</button></div>
+    `;
+
+    const modal = document.getElementById('offlineModal');
+    if (lastOfflineSummary && lastOfflineSummary.elapsedMs >= 60000) {
+      document.getElementById('offlineText').innerHTML = `オフライン：${fmtDuration(lastOfflineSummary.elapsedMs)}<br>収穫：+${lastOfflineSummary.harvested}個<br>販売：+${lastOfflineSummary.gain}コイン<br>燃料消費：-${lastOfflineSummary.fuel}`;
+      modal.classList.add('show');
+    }
+  }
+
+  document.body.addEventListener('click', (e) => {
+    const t = e.target;
+    if (t.dataset.tab) { state.ui.activeTab = t.dataset.tab; render(); }
+    if (t.dataset.crop) { state.ui.selectedCropId = t.dataset.crop; render(); }
+    if (t.dataset.i !== undefined) {
+      const idx = Number(t.dataset.i);
+      if (state.grid[idx].state === 'ready') {
+        const h = harvestReady(1);
+        if (h.harvested) render();
+      } else { if (plantAt(idx)) render(); }
+    }
+    if (t.id === 'plantAll') { plantAll(); render(); }
+    if (t.id === 'buyExpand') {
+      const cost = gridUpgradeCosts[state.unlocks.gridExpansions];
+      if (cost && state.coins >= cost && expandGrid()) { state.coins -= cost; render(); }
+    }
+    if (t.dataset.fuel !== undefined) {
+      const p = fuelPacks[Number(t.dataset.fuel)];
+      if (state.coins >= p.cost) { state.coins -= p.cost; state.fuel = Math.min(9999, state.fuel + p.fuel); render(); }
+    }
+    if (t.id === 'upHarv') {
+      const lv = state.cats.harvester.level;
+      const cost = catUpgradeCosts[lv-1];
+      if (cost && state.coins >= cost) { state.coins -= cost; state.cats.harvester.level++; render(); }
+    }
+    if (t.id === 'upSell') {
+      const lv = state.cats.seller.level;
+      const cost = catUpgradeCosts[lv-1];
+      if (cost && state.coins >= cost) { state.coins -= cost; state.cats.seller.level++; render(); }
+    }
+    if (t.id === 'toggleHarv') { state.cats.harvester.enabled = !state.cats.harvester.enabled; render(); }
+    if (t.id === 'toggleSell') { state.cats.seller.enabled = !state.cats.seller.enabled; render(); }
+    if (t.id === 'toggleGuide') { state.settings.guideEnabled = !state.settings.guideEnabled; render(); }
+    if (t.id === 'toggleBgm') { state.settings.bgmEnabled = !state.settings.bgmEnabled; render(); }
+    if (t.id === 'toggleSe') { state.settings.seEnabled = !state.settings.seEnabled; render(); }
+    if (t.id === 'resetBtn') {
+      if (confirm('セーブデータをリセットしますか？')) { state = defaultState(); render(); }
+    }
+    if (t.id === 'exportBtn') {
+      const blob = new Blob([JSON.stringify(state, null, 2)], {type:'application/json'});
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'mofuneko-farm-save.json';
+      a.click(); URL.revokeObjectURL(a.href);
+    }
+    if (t.id === 'offlineOk') {
+      lastOfflineSummary = null;
+      document.getElementById('offlineModal').classList.remove('show');
+    }
+  });
+
+  document.body.addEventListener('change', async (e) => {
+    const t = e.target;
+    if (t.id === 'importFile' && t.files?.[0]) {
+      try {
+        const txt = await t.files[0].text();
+        const data = clampState(JSON.parse(txt));
+        const required = ['coins','fuel','grid','warehouse','cats','lastSeen'];
+        if (!required.every(k => k in data)) throw new Error('必須キー不足');
+        state = data;
+        alert('インポート完了');
+        render();
+      } catch {
+        alert('不正なJSONです');
+      } finally { t.value = ''; }
+    }
+  });
+
+  setInterval(() => {
+    recomputeReady(Date.now());
+    const hLimit = Math.ceil(1 / harvestIntervals[state.cats.harvester.level - 1]);
+    const h = harvestReady(hLimit);
+    if (h.harvested) render();
+    const s = sellOneAction();
+    if (s.sold) render();
+  }, 1000);
+
+  offlineProgress();
+  render();
+  window.addEventListener('beforeunload', () => { state.lastSeen = Date.now(); save(); });
+})();
+</script>
+</body>
+</html>
