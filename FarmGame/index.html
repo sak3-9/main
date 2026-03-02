@@ -122,6 +122,7 @@
   const catUpgradeCosts = [300, 900, 1800, 3200];
   const harvestIntervals = [10,9,8,7,6];
   const sellCap = [10,12,14,16,18];
+  const ONLINE_TICK_MS = 1000;
   const fuelPacks = [
     {name:'Small', fuel:50, cost:100},
     {name:'Medium', fuel:200, cost:360},
@@ -139,7 +140,7 @@
     },
     unlocks:{ gridExpansions:0 },
     settings:{ guideEnabled:true, bgmEnabled:false, seEnabled:true },
-    ui:{ selectedCropId:'carrot', activeTab:'farm' }
+    ui:{ selectedCropId:'carrot', activeTab:'farm', harvestTimerMs:0, sellTimerMs:0 }
   });
 
   let state = load();
@@ -165,6 +166,8 @@
     s.unlocks.gridExpansions = Math.max(0, Math.min(6, Number(s.unlocks.gridExpansions)||0));
     s.settings = Object.assign({ guideEnabled:true, bgmEnabled:false, seEnabled:true }, s.settings || {});
     s.ui = Object.assign({ selectedCropId:'carrot', activeTab:'farm' }, s.ui || {});
+    s.ui.harvestTimerMs = Math.max(0, Number(s.ui.harvestTimerMs)||0);
+    s.ui.sellTimerMs = Math.max(0, Number(s.ui.sellTimerMs)||0);
     return s;
   }
 
@@ -233,6 +236,8 @@
 
   function sellOneAction() {
     if (!state.cats.seller.enabled || state.fuel <= 0) return {sold:0, coins:0, fuel:0};
+    const fuelPerAction = Math.ceil(sellCap[state.cats.seller.level - 1] / 10);
+    if (state.fuel < fuelPerAction) return {sold:0, coins:0, fuel:0};
     const sorted = Object.entries(state.warehouse)
       .filter(([,qty]) => qty > 0)
       .map(([cropId, qty]) => ({cropId, qty, crop: getCrop(cropId)}))
@@ -252,10 +257,29 @@
     }
     if (sold <= 0) return {sold:0, coins:0, fuel:0};
     const fuelCost = Math.ceil(sold / 10);
-    if (state.fuel < fuelCost) return {sold:0, coins:0, fuel:0};
     state.fuel -= fuelCost;
     state.coins += gain;
     return {sold, coins:gain, fuel:fuelCost};
+  }
+
+  function runOnlineCats(deltaMs) {
+    if (deltaMs <= 0) return;
+
+    state.ui.harvestTimerMs += deltaMs;
+    const harvestIntervalMs = harvestIntervals[state.cats.harvester.level - 1] * 1000;
+    while (state.ui.harvestTimerMs >= harvestIntervalMs) {
+      state.ui.harvestTimerMs -= harvestIntervalMs;
+      const h = harvestReady(1);
+      if (!h.harvested) break;
+    }
+
+    state.ui.sellTimerMs += deltaMs;
+    const sellIntervalMs = 10000;
+    while (state.ui.sellTimerMs >= sellIntervalMs) {
+      state.ui.sellTimerMs -= sellIntervalMs;
+      const s = sellOneAction();
+      if (!s.sold) break;
+    }
   }
 
   function offlineProgress() {
@@ -423,12 +447,9 @@
 
   setInterval(() => {
     recomputeReady(Date.now());
-    const hLimit = Math.ceil(1 / harvestIntervals[state.cats.harvester.level - 1]);
-    const h = harvestReady(hLimit);
-    if (h.harvested) render();
-    const s = sellOneAction();
-    if (s.sold) render();
-  }, 1000);
+    runOnlineCats(ONLINE_TICK_MS);
+    render();
+  }, ONLINE_TICK_MS);
 
   offlineProgress();
   render();
