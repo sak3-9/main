@@ -1,0 +1,7 @@
+-- 002_seed_allowlist.sql
+-- Public-repo safe default: do NOT insert real emails in source control.
+-- Add your two allowlisted emails manually in Supabase SQL Editor, for example:
+-- insert into public.allowlist(email) values
+--   ('your_email@example.com'),
+--   ('partner_email@example.com')
+-- on conflict (email) do nothing;
