@@ -22,14 +22,20 @@
 ## 2) SQL migration適用
 Supabase SQL Editorで次を順番に実行:
 1. `supabase/migrations/001_init.sql`
-2. `supabase/migrations/002_seed_allowlist.sql`（2人のメールに置換してから）
-3. `supabase/migrations/003_fix_task_delete_permission.sql`（既存環境で削除権限エラーが出る場合）
-4. `supabase/migrations/004_harden_task_permissions.sql`（列権限と削除条件の強化）
+2. `supabase/migrations/002_seed_allowlist.sql`（公開リポジトリ安全化: 実メールは入れないテンプレ）
+3. `supabase/migrations/003_fix_task_delete_permission.sql`（旧環境救済: テーブル権限付与のみ）
+4. `supabase/migrations/004_harden_task_permissions.sql`（削除条件・列権限を強化）
+5. `supabase/migrations/005_remove_workspace_members_rpc.sql`（不要RPCの削除）
 
-### allowlistメール更新
-`002_seed_allowlist.sql` の以下を置換:
-- `your_email@example.com`
-- `partner_email@example.com`
+### allowlistメール設定（実値はコミットしない）
+Supabase SQL Editorで次を**手動実行**してください（2人分のみ）:
+
+```sql
+insert into public.allowlist(email) values
+  ('your_email@example.com'),
+  ('partner_email@example.com')
+on conflict (email) do nothing;
+```
 
 ## 3) Environment Variables
 `.env.example` をコピーして `.env.local` を作成:
@@ -83,7 +89,8 @@ npm run dev
 
 1. `supabase/migrations/003_fix_task_delete_permission.sql`
 
-これで `authenticated` へ DELETE 権限を付与し、RLS の delete policy も再作成されます。
+これで `authenticated` へ必要なテーブル権限を補います。
+※ このマイグレーションはRLS policyを変更しないため、削除条件を弱めません。
 
 
 ## 10) フィルタ簡易テスト
