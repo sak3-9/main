@@ -5,6 +5,7 @@ import { getSupabaseClient } from '@/lib/supabase';
 import type { FilterKey, Priority, Profile, Task } from '@/lib/types';
 
 type AuthUser = { id: string; email: string } | null;
+
 type EditableTaskFields = Pick<Task, 'title' | 'memo' | 'due_date' | 'priority' | 'assignee' | 'status' | 'is_archived'>;
 
 const TABS: { key: FilterKey; label: string }[] = [
@@ -86,9 +87,9 @@ export default function Page() {
 
   async function loadTasks() {
     if (!supabase) return;
-    const { data, error: selectError } = await supabase.from('tasks').select('*');
-    if (selectError) {
-      setError(selectError.message.includes('permission') ? '許可された2人のみ利用できます。' : selectError.message);
+    const { data, error } = await supabase.from('tasks').select('*');
+    if (error) {
+      setError(error.message.includes('permission') ? '許可された2人のみ利用できます。' : error.message);
       return;
     }
     setTasks((data ?? []) as Task[]);
@@ -118,7 +119,11 @@ export default function Page() {
     }
 
     setUser({ id: u.id, email: u.email });
-    const { error: profileErr } = await supabase.from('profiles').upsert({ id: u.id, email: u.email, display_name: null });
+    const { error: profileErr } = await supabase.from('profiles').upsert({
+      id: u.id,
+      email: u.email,
+      display_name: null
+    });
 
     if (profileErr) {
       setError('このメールは利用対象外です（Allowlistをご確認ください）。');
@@ -187,23 +192,23 @@ export default function Page() {
     if (!supabase) return;
     e.preventDefault();
     setAuthMessage('');
-    const { error: signInError } = await supabase.auth.signInWithOtp({
+    const { error } = await supabase.auth.signInWithOtp({
       email: emailInput,
       options: { emailRedirectTo: window.location.origin }
     });
-    setAuthMessage(signInError ? signInError.message : 'ログインリンクをメールに送信しました。');
+    setAuthMessage(error ? error.message : 'ログインリンクをメールに送信しました。');
   }
 
   async function createTask() {
     if (!supabase || !user) return;
     setSaving(true);
-    const { data, error: insertError } = await supabase
+    const { data, error } = await supabase
       .from('tasks')
       .insert({ title: '新しいタスク', memo: '', priority: 'medium', status: 'open', created_by: user.id, assignee: null })
       .select('*')
       .single();
     setSaving(false);
-    if (insertError) return setError(insertError.message);
+    if (error) return setError(error.message);
     setTasks((prev) => [data as Task, ...prev]);
     setSelectedId((data as Task).id);
   }
@@ -223,8 +228,8 @@ export default function Page() {
     payload.title = title;
     payload.memo = memo;
 
-    const { error: updateError } = await supabase.from('tasks').update(payload).eq('id', id);
-    if (updateError) return setError(updateError.message);
+    const { error } = await supabase.from('tasks').update(payload).eq('id', id);
+    if (error) return setError(error.message);
 
     setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, ...payload, updated_at: new Date().toISOString() } : t)));
   }
@@ -238,8 +243,8 @@ export default function Page() {
     const ok = window.confirm(`「${task.title}」を削除しますか？\nこの操作は取り消せません。`);
     if (!ok) return;
 
-    const { error: deleteError } = await supabase.from('tasks').delete().eq('id', task.id);
-    if (deleteError) return setError(deleteError.message);
+    const { error } = await supabase.from('tasks').delete().eq('id', task.id);
+    if (error) return setError(error.message);
     setTasks((prev) => prev.filter((t) => t.id !== task.id));
     if (selectedId === task.id) setSelectedId(null);
   }
@@ -257,213 +262,125 @@ export default function Page() {
   }
 
   const boardCols = {
-    todo: visibleTasks.filter((t) => t.status === 'open' && !isToday(t.due_date) && !isOverdue(t.due_date)),
-    focus: visibleTasks.filter((t) => t.status === 'open' && (isToday(t.due_date) || isOverdue(t.due_date))),
+    urgent: visibleTasks.filter((t) => t.status === 'open' && (isToday(t.due_date) || isOverdue(t.due_date))),
+    open: visibleTasks.filter((t) => t.status === 'open' && !isToday(t.due_date) && !isOverdue(t.due_date)),
     done: visibleTasks.filter((t) => t.status === 'done')
   };
 
-  if (loading) return <main className="grid min-h-screen place-items-center text-violet-100">読み込み中です…</main>;
+  if (loading) return <main className="min-h-screen grid place-items-center text-purple-100">読み込み中です…</main>;
 
   if (!user) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_top,_#3d3752,_#1f1f2a_55%)] p-5">
-        <form onSubmit={signInMagic} className="w-full max-w-md space-y-4 rounded-3xl border border-white/10 bg-[#2b2c33] p-7 shadow-2xl">
-          <h1 className="text-2xl font-semibold text-[#f6edf8]">ふたりタスク共有</h1>
-          <p className="text-sm text-[#d2c8de]">さくとしょこ専用。魔法リンクで安全にログインできます。</p>
-          <input className="no-zoom w-full rounded-xl border border-white/10 bg-[#1f2026] px-3 py-2" type="email" required value={emailInput} onChange={(e) => setEmailInput(e.target.value)} placeholder="メールアドレス" />
-          <button className="w-full rounded-xl bg-[#9980F2] py-2 font-semibold text-[#1f1a2a]">ログインリンクを送る</button>
-          {authMessage && <p className="text-sm text-[#d9cde5]">{authMessage}</p>}
-          {error && <p className="text-sm text-[#F2B4AE]">{error}</p>}
+      <main className="min-h-screen flex items-center justify-center p-5">
+        <form onSubmit={signInMagic} className="w-full max-w-md rounded-2xl border border-purple-400/30 bg-panel p-6 space-y-4 shadow-xl">
+          <h1 className="text-2xl font-bold">ふたりタスク共有</h1>
+          <p className="text-sm text-purple-200">さくとしょこ専用の、やさしいタスク管理です。</p>
+          <input className="w-full rounded-xl bg-bg px-3 py-2 no-zoom" type="email" required value={emailInput} onChange={(e) => setEmailInput(e.target.value)} placeholder="メールアドレス" />
+          <button className="w-full rounded-xl bg-gradient-to-r from-accent to-accent2 py-2 font-semibold text-black no-zoom">ログインリンクを送る</button>
+          {authMessage && <p className="text-sm text-purple-100">{authMessage}</p>}
+          {error && <p className="text-sm text-rose-200">{error}</p>}
         </form>
       </main>
     );
   }
 
   return (
-    <main className="min-h-screen bg-[#1d1f26] text-[#f2e8f4]">
-      <div className="mx-auto flex max-w-[1440px]">
-        <aside className="hidden min-h-screen w-64 border-r border-white/10 bg-[#24262f] p-5 lg:block">
-          <p className="mb-6 text-sm text-[#d6c7dc]">ふたりプロジェクト</p>
-          <h2 className="mb-3 text-lg font-semibold">今日のタスク管理</h2>
-          <div className="space-y-2 text-sm text-[#cabfd7]">
-            <p>👩 さく</p>
-            <p>👩 しょこ</p>
-          </div>
-          {!partnerId && <p className="mt-6 rounded-lg bg-[#9980F2]/20 p-3 text-xs text-[#d8ceff]">しょこが未ログインです。担当切替は「共同↔さく」で動きます。</p>}
-        </aside>
-
-        <section className="w-full p-4 lg:p-6">
+    <main className="min-h-screen p-4 md:p-8">
+      <div className="mx-auto max-w-7xl grid gap-4 md:grid-cols-[1.25fr,1fr]">
+        <section className="rounded-2xl border border-purple-500/30 bg-panel p-4">
           <header className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h1 className="text-2xl font-bold">webサイトリニューアル</h1>
-              <p className="text-sm text-[#cabfd7]">{user.email}</p>
+              <h1 className="text-xl font-bold">今日のふたりタスク</h1>
+              <p className="text-xs text-purple-200">{user.email}</p>
             </div>
-            <div className="flex items-center gap-2">
-              <button onClick={createTask} disabled={saving} className="rounded-lg bg-[#9980F2] px-4 py-2 text-sm font-semibold text-[#1f1a2a]">+ タスクを追加</button>
-              <button className="rounded-lg border border-white/20 px-3 py-2 text-sm" onClick={logout}>ログアウト</button>
-            </div>
+            <button className="rounded-xl border border-purple-400/40 px-3 py-2 text-sm" onClick={logout}>ログアウト</button>
           </header>
 
-          <div className="mb-4 flex flex-wrap gap-2 border-y border-white/10 py-3">
+          <div className="mb-4 flex gap-2 overflow-auto pb-1">
             {TABS.map((tab) => (
-              <button key={tab.key} onClick={() => setFilter(tab.key)} className={`rounded-full px-3 py-1.5 text-sm ${filter === tab.key ? 'bg-[#D989CB] text-[#231f2c]' : 'bg-[#2a2d36] text-[#e7dff0]'}`}>
+              <button key={tab.key} onClick={() => setFilter(tab.key)} className={`whitespace-nowrap rounded-full px-3 py-1 text-sm ${filter === tab.key ? 'bg-accent text-black' : 'bg-card text-purple-100'}`}>
                 {tab.label}
-                {!['done', 'archived'].includes(tab.key) && <span className="ml-2 rounded-full bg-black/30 px-2 py-0.5 text-xs">{counts[tab.key as keyof typeof counts] ?? 0}</span>}
+                {!['done', 'archived'].includes(tab.key) && (
+                  <span className="ml-2 rounded-full bg-black/30 px-2 py-0.5 text-xs text-white">{counts[tab.key as keyof typeof counts] ?? 0}</span>
+                )}
               </button>
             ))}
           </div>
 
-          {error && <p className="mb-3 rounded-lg bg-[#F2B4AE]/20 p-2 text-sm text-[#ffd7d2]">{error}</p>}
+          {!partnerId && <p className="mb-2 text-xs text-purple-300">しょこがまだログインしていないため、一部の担当切替は制限されます。</p>}
+          {error && <p className="mb-3 rounded-lg bg-rose-400/15 p-2 text-sm text-rose-100">{error}</p>}
 
-          <div className="grid gap-4 xl:grid-cols-3">
-            <TaskLane title="やること" accent="#D989CB" tasks={boardCols.todo} emptyText="タスクなし" me={user.id} partnerId={partnerId} onSelect={setSelectedId} onToggleDone={toggleDone} onPatch={patchTask} onDelete={deleteTask} />
-            <TaskLane title="進行中（今日/期限切れ）" accent="#9980F2" tasks={boardCols.focus} emptyText="タスクなし" me={user.id} partnerId={partnerId} onSelect={setSelectedId} onToggleDone={toggleDone} onPatch={patchTask} onDelete={deleteTask} />
-            <TaskLane title="完了" accent="#88ABF2" tasks={boardCols.done} emptyText="タスクなし" me={user.id} partnerId={partnerId} onSelect={setSelectedId} onToggleDone={toggleDone} onPatch={patchTask} onDelete={deleteTask} />
-          </div>
-        </section>
-      </div>
-
-      {selected && user && (
-        <TaskDetailModal
-          task={selected}
-          me={user.id}
-          partnerId={partnerId}
-          onClose={() => setSelectedId(null)}
-          onPatch={patchTask}
-          onDelete={deleteTask}
-          onToggleDone={toggleDone}
-        />
-      )}
-    </main>
-  );
-}
-
-function TaskLane({
-  title,
-  accent,
-  tasks,
-  emptyText,
-  me,
-  partnerId,
-  onSelect,
-  onToggleDone,
-  onPatch,
-  onDelete
-}: {
-  title: string;
-  accent: string;
-  tasks: Task[];
-  emptyText: string;
-  me: string;
-  partnerId: string | null;
-  onSelect: (id: string) => void;
-  onToggleDone: (task: Task) => void;
-  onPatch: (id: string, patch: Partial<Task>) => void;
-  onDelete: (task: Task) => void;
-}) {
-  return (
-    <section className="min-h-[420px] rounded-2xl border border-white/10 bg-[#23252d] p-3">
-      <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold">
-        <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: accent }} />
-        {title}
-        <span className="text-[#c5bbd2]">{tasks.length}</span>
-      </h2>
-      <div className="space-y-3">
-        {tasks.length === 0 && <p className="text-xs text-[#b4a8c5]">{emptyText}</p>}
-        {tasks.map((t) => (
-          <TaskCard key={t.id} t={t} me={me} onSelect={onSelect} onToggleDone={onToggleDone} onPatch={onPatch} onDelete={onDelete} partnerId={partnerId} />
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function TaskDetailModal({
-  task,
-  me,
-  partnerId,
-  onClose,
-  onPatch,
-  onDelete,
-  onToggleDone
-}: {
-  task: Task;
-  me: string;
-  partnerId: string | null;
-  onClose: () => void;
-  onPatch: (id: string, patch: Partial<Task>) => void;
-  onDelete: (task: Task) => void;
-  onToggleDone: (task: Task) => void;
-}) {
-  const [commentDraft, setCommentDraft] = useState('');
-
-  function appendComment() {
-    if (!commentDraft.trim()) return;
-    const author = task.assignee === partnerId ? 'しょこ' : 'さく';
-    const line = `\n\n[コメント ${todayLocal()} ${author}]\n${commentDraft.trim()}`;
-    onPatch(task.id, { memo: `${task.memo ?? ''}${line}` });
-    setCommentDraft('');
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-3" role="dialog" aria-modal="true">
-      <div className="max-h-[92vh] w-full max-w-3xl overflow-auto rounded-2xl border border-white/15 bg-[#2a2c34] shadow-2xl">
-        <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
-          <div>
-            <p className="text-xs text-[#bcb1cc]"># タスク詳細</p>
-            <h3 className="text-2xl font-semibold">{task.title}</h3>
-          </div>
-          <button className="rounded-md border border-white/20 px-3 py-1.5" onClick={onClose}>閉じる</button>
-        </div>
-
-        <div className="space-y-3 p-5">
-          <label className="text-sm">タイトル
-            <input className="mt-1 w-full rounded-xl border border-white/10 bg-[#1e2028] px-3 py-2" value={task.title} onChange={(e) => onPatch(task.id, { title: e.target.value })} />
-          </label>
-
-          <div className="grid gap-2 sm:grid-cols-3">
-            <label className="text-sm">期限
-              <input type="date" className="mt-1 w-full rounded-xl border border-white/10 bg-[#1e2028] px-3 py-2" value={task.due_date ?? ''} onChange={(e) => onPatch(task.id, { due_date: e.target.value || null })} />
-            </label>
-            <label className="text-sm">優先度
-              <select className="mt-1 w-full rounded-xl border border-white/10 bg-[#1e2028] px-3 py-2" value={task.priority} onChange={(e) => onPatch(task.id, { priority: e.target.value as Priority })}>
-                <option value="low">低</option>
-                <option value="medium">中</option>
-                <option value="high">高</option>
-              </select>
-            </label>
-            <label className="text-sm">担当
-              <select className="mt-1 w-full rounded-xl border border-white/10 bg-[#1e2028] px-3 py-2" value={task.assignee ?? '__both__'} onChange={(e) => onPatch(task.id, { assignee: e.target.value === '__both__' ? null : e.target.value })}>
-                <option value="__both__">共同</option>
-                <option value={me}>さく</option>
-                {partnerId && <option value={partnerId}>しょこ</option>}
-              </select>
-            </label>
-          </div>
-
-          <label className="text-sm">説明・メモ
-            <textarea className="mt-1 min-h-28 w-full rounded-xl border border-white/10 bg-[#1e2028] px-3 py-2" value={task.memo ?? ''} onChange={(e) => onPatch(task.id, { memo: e.target.value })} />
-          </label>
-
-          <div className="rounded-xl border border-white/10 bg-[#24262e] p-3">
-            <p className="mb-2 text-sm font-medium">コメント</p>
-            <textarea className="min-h-20 w-full rounded-xl border border-white/10 bg-[#1e2028] px-3 py-2" value={commentDraft} onChange={(e) => setCommentDraft(e.target.value)} placeholder="コメントを書く" />
-            <div className="mt-2 flex justify-end">
-              <button className="rounded-lg bg-[#88ABF2] px-4 py-2 text-sm font-semibold text-[#1c2030]" onClick={appendComment}>コメントをメモへ追記</button>
+          <div className="grid gap-3 lg:grid-cols-3">
+            <div className="rounded-xl border border-purple-500/30 bg-black/20 p-3">
+              <h2 className="mb-2 text-sm font-semibold text-purple-100">優先（今日/期限切れ）</h2>
+              {boardCols.urgent.length === 0 && <p className="text-xs text-purple-300">タスクなし</p>}
+              {boardCols.urgent.map((t) => <TaskCard key={t.id} t={t} me={user.id} onSelect={setSelectedId} onToggleDone={toggleDone} onPatch={patchTask} onDelete={deleteTask} partnerId={partnerId} />)}
+            </div>
+            <div className="rounded-xl border border-purple-500/30 bg-black/20 p-3">
+              <h2 className="mb-2 text-sm font-semibold text-purple-100">未完了</h2>
+              {boardCols.open.length === 0 && <p className="text-xs text-purple-300">タスクなし</p>}
+              {boardCols.open.map((t) => <TaskCard key={t.id} t={t} me={user.id} onSelect={setSelectedId} onToggleDone={toggleDone} onPatch={patchTask} onDelete={deleteTask} partnerId={partnerId} />)}
+            </div>
+            <div className="rounded-xl border border-purple-500/30 bg-black/20 p-3">
+              <h2 className="mb-2 text-sm font-semibold text-purple-100">完了</h2>
+              {boardCols.done.length === 0 && <p className="text-xs text-purple-300">タスクなし</p>}
+              {boardCols.done.map((t) => <TaskCard key={t.id} t={t} me={user.id} onSelect={setSelectedId} onToggleDone={toggleDone} onPatch={patchTask} onDelete={deleteTask} partnerId={partnerId} />)}
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-2">
-            <button className="rounded-lg bg-[#9980F2] px-4 py-2 text-sm font-semibold text-[#1f1a2a]" onClick={() => onPatch(task.id, toEditablePayload(task))}>保存</button>
-            <button className="rounded-lg bg-[#d989cb] px-4 py-2 text-sm font-semibold text-[#2e2230]" onClick={() => onToggleDone(task)}>{task.status === 'open' ? '完了にする' : '未完了へ戻す'}</button>
-            <button className="rounded-lg bg-[#f2dcc2] px-4 py-2 text-sm font-semibold text-[#332d25]" onClick={() => onPatch(task.id, { is_archived: !task.is_archived })}>{task.is_archived ? 'アーカイブ解除' : 'アーカイブへ移動'}</button>
-            {(task.status === 'done' || task.is_archived) && <button className="rounded-lg bg-[#F2B4AE] px-4 py-2 text-sm font-semibold text-[#3a1f1c]" onClick={() => onDelete(task)}>削除</button>}
-          </div>
+          <button onClick={createTask} disabled={saving} className="fixed bottom-6 right-6 md:static md:mt-4 rounded-full md:rounded-xl bg-gradient-to-r from-accent to-accent2 px-5 py-3 font-bold text-black shadow-xl no-zoom">＋ タスク追加</button>
+        </section>
 
-          <p className="text-xs text-[#bdb2cb]">作成: {new Date(task.created_at).toLocaleString()} / 更新: {new Date(task.updated_at).toLocaleString()}</p>
-        </div>
+        <section className="rounded-2xl border border-purple-500/30 bg-panel p-4">
+          {!selected && (
+            <div className="space-y-2 text-sm text-purple-200">
+              <p>左のカードを選ぶと詳細を編集できます。</p>
+              <p>おすすめ: タスクは小さく分けると続けやすいです。</p>
+            </div>
+          )}
+          {selected && (
+            <div className="space-y-3">
+              <h2 className="text-lg font-semibold">タスク詳細</h2>
+              <label className="text-sm">タイトル
+                <input className="mt-1 w-full rounded-xl bg-bg px-3 py-2" value={selected.title} onChange={(e) => setTasks((prev) => prev.map((t) => (t.id === selected.id ? { ...t, title: e.target.value } : t)))} />
+              </label>
+              <label className="text-sm">メモ
+                <textarea className="mt-1 w-full rounded-xl bg-bg px-3 py-2 min-h-28" value={selected.memo ?? ''} onChange={(e) => setTasks((prev) => prev.map((t) => (t.id === selected.id ? { ...t, memo: e.target.value } : t)))} />
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <label className="text-sm">期限
+                  <input type="date" className="mt-1 w-full rounded-xl bg-bg px-3 py-2" value={selected.due_date ?? ''} onChange={(e) => setTasks((prev) => prev.map((t) => (t.id === selected.id ? { ...t, due_date: e.target.value || null } : t)))} />
+                </label>
+                <label className="text-sm">優先度
+                  <select className="mt-1 w-full rounded-xl bg-bg px-3 py-2" value={selected.priority} onChange={(e) => setTasks((prev) => prev.map((t) => (t.id === selected.id ? { ...t, priority: e.target.value as Priority } : t)))}>
+                    <option value="low">低</option>
+                    <option value="medium">中</option>
+                    <option value="high">高</option>
+                  </select>
+                </label>
+              </div>
+              <label className="text-sm">担当
+                <select className="mt-1 w-full rounded-xl bg-bg px-3 py-2" value={selected.assignee ?? '__both__'} onChange={(e) => setTasks((prev) => prev.map((t) => (t.id === selected.id ? { ...t, assignee: e.target.value === '__both__' ? null : e.target.value } : t)))}>
+                  <option value="__both__">共同</option>
+                  <option value={user.id}>さく</option>
+                  {partnerId && <option value={partnerId}>しょこ</option>}
+                </select>
+              </label>
+
+              <div className="flex flex-wrap gap-2">
+                <button className="rounded-xl bg-accent px-4 py-2 text-black" onClick={() => patchTask(selected.id, toEditablePayload(selected))}>保存</button>
+                <button className="rounded-xl bg-card px-4 py-2" onClick={() => { if (window.confirm(selected.is_archived ? 'アーカイブを解除しますか？' : 'アーカイブへ移動しますか？')) patchTask(selected.id, { is_archived: !selected.is_archived }); }}>
+                  {selected.is_archived ? 'アーカイブ解除' : 'アーカイブ'}
+                </button>
+                <button className="rounded-xl bg-card px-4 py-2" onClick={() => toggleDone(selected)}>{selected.status === 'open' ? '完了にする' : '未完了に戻す'}</button>
+                {(selected.status === 'done' || selected.is_archived) && <button className="rounded-xl bg-rose-700/80 px-4 py-2" onClick={() => deleteTask(selected)}>削除</button>}
+              </div>
+              <p className="text-xs text-purple-300">作成: {new Date(selected.created_at).toLocaleString()} / 更新: {new Date(selected.updated_at).toLocaleString()}</p>
+            </div>
+          )}
+        </section>
       </div>
-    </div>
+    </main>
   );
 }
 
@@ -488,11 +405,9 @@ function TaskCard({
   const nextAssignee = t.assignee === me ? (canSwitchToPartner ? partnerId : null) : t.assignee === partnerId ? null : me;
 
   return (
-    <article className="rounded-xl border border-white/10 bg-[#2f323b] p-3 shadow-[0_4px_16px_rgba(0,0,0,0.18)]">
-      <button onClick={() => onSelect(t.id)} className="w-full text-left">
-        <p className="font-semibold text-[#f4edf7]">{t.title}</p>
-      </button>
-      <div className="mt-2 flex flex-wrap gap-2 text-xs text-[#d9cfe6]">
+    <article className="mb-2 rounded-xl border border-purple-500/25 bg-card p-3">
+      <button onClick={() => onSelect(t.id)} className="w-full text-left"><p className="font-semibold text-purple-50">{t.title}</p></button>
+      <div className="mt-2 flex flex-wrap gap-2 text-xs text-purple-200">
         <span className="rounded-full bg-black/25 px-2 py-1">{dueText(t)}</span>
         <span className="rounded-full bg-black/25 px-2 py-1">優先: {priorityLabel[t.priority]}</span>
         <span className="rounded-full bg-black/25 px-2 py-1">担当: {t.assignee === me ? 'さく' : t.assignee === partnerId ? 'しょこ' : '共同'}</span>
@@ -501,7 +416,7 @@ function TaskCard({
         <button className="rounded bg-black/25 px-2 py-1" onClick={() => onToggleDone(t)}>{t.status === 'open' ? '完了にする' : '未完了に戻す'}</button>
         <button className="rounded bg-black/25 px-2 py-1 disabled:opacity-50" disabled={!canSwitchToPartner && t.assignee === me} onClick={() => onPatch(t.id, { assignee: nextAssignee ?? null })}>担当切替</button>
         <button className="rounded bg-black/25 px-2 py-1" onClick={() => onPatch(t.id, { priority: t.priority === 'high' ? 'medium' : t.priority === 'medium' ? 'low' : 'high' })}>優先度変更</button>
-        {(t.status === 'done' || t.is_archived) && <button className="rounded bg-[#F2B4AE] px-2 py-1 text-[#3a1f1c]" onClick={() => onDelete(t)}>削除</button>}
+        {(t.status === 'done' || t.is_archived) && <button className="rounded bg-rose-700/80 px-2 py-1" onClick={() => onDelete(t)}>削除</button>}
       </div>
     </article>
   );
