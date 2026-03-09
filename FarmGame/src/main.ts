@@ -350,20 +350,6 @@ function renderAll() {
   save();
 }
 
-let last = performance.now();
-app.ticker.add(() => {
-  const now = performance.now();
-  const delta = now - last;
-  last = now;
-  updateReady(Date.now());
-  state.ui.hMs += delta;
-  state.ui.sMs += delta;
-  const hi = HARVEST_INTERVAL[state.cats.harvester.level - 1] * 1000;
-  while (state.ui.hMs >= hi) { state.ui.hMs -= hi; if (!harvest(1)) break; }
-  while (state.ui.sMs >= 10000) { state.ui.sMs -= 10000; if (!sellAction()) break; }
-  renderAll();
-});
-
 function showOfflineModal() {
   if (offlineSummary.elapsed < 60000) return;
   const min = Math.floor(offlineSummary.elapsed / 60000);
@@ -404,6 +390,20 @@ async function bootstrap() {
   appEl.appendChild(app.canvas);
   app.stage.addChild(farmLayer);
   await loadManifestTextures();
+  let last = performance.now();
+  app.ticker?.add(() => {
+    const now = performance.now();
+    const delta = now - last;
+    last = now;
+    updateReady(Date.now());
+    state.ui.hMs += delta;
+    state.ui.sMs += delta;
+    const hi = HARVEST_INTERVAL[state.cats.harvester.level - 1] * 1000;
+    while (state.ui.hMs >= hi) { state.ui.hMs -= hi; if (!harvest(1)) break; }
+    while (state.ui.sMs >= 10000) { state.ui.sMs -= 10000; if (!sellAction()) break; }
+    renderAll();
+  });
+
   offlineSummary = applyOffline();
   window.addEventListener('beforeunload', () => { state.lastSeen = Date.now(); save(); });
   renderAll();
