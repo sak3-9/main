@@ -1,0 +1,146 @@
+{
+  "bundles": [
+    {
+      "name": "core",
+      "assets": [
+        {
+          "name": "bg_farm",
+          "srcs": "assets/bg/bg_farm.png"
+        },
+        {
+          "name": "ic_coin_16",
+          "srcs": "assets/icons/ic_coin_16.png"
+        },
+        {
+          "name": "ic_fuel_16",
+          "srcs": "assets/icons/ic_fuel_16.png"
+        },
+        {
+          "name": "ic_shop_24",
+          "srcs": "assets/icons/ic_shop_24.png"
+        },
+        {
+          "name": "ic_cats_24",
+          "srcs": "assets/icons/ic_cats_24.png"
+        },
+        {
+          "name": "ic_settings_24",
+          "srcs": "assets/icons/ic_settings_24.png"
+        },
+        {
+          "name": "ic_close_24",
+          "srcs": "assets/icons/ic_close_24.png"
+        }
+      ]
+    },
+    {
+      "name": "farm",
+      "assets": [
+        {
+          "name": "tile_empty",
+          "srcs": "assets/farm/tile_empty.png"
+        },
+        {
+          "name": "tile_growing",
+          "srcs": "assets/farm/tile_growing.png"
+        },
+        {
+          "name": "tile_ready",
+          "srcs": "assets/farm/tile_ready.png"
+        }
+      ]
+    },
+    {
+      "name": "crops",
+      "assets": [
+        {
+          "name": "crop_carrot",
+          "srcs": "assets/crops/carrot.png"
+        },
+        {
+          "name": "crop_strawberry",
+          "srcs": "assets/crops/strawberry.png"
+        },
+        {
+          "name": "crop_potato",
+          "srcs": "assets/crops/potato.png"
+        },
+        {
+          "name": "crop_tomato",
+          "srcs": "assets/crops/tomato.png"
+        },
+        {
+          "name": "crop_pumpkin",
+          "srcs": "assets/crops/pumpkin.png"
+        },
+        {
+          "name": "crop_grape",
+          "srcs": "assets/crops/grape.png"
+        }
+      ]
+    },
+    {
+      "name": "cats",
+      "assets": [
+        {
+          "name": "cat_harvester_idle_0",
+          "srcs": "assets/cats/cat_harvester_idle_0.png"
+        },
+        {
+          "name": "cat_harvester_idle_1",
+          "srcs": "assets/cats/cat_harvester_idle_1.png"
+        },
+        {
+          "name": "cat_seller_idle_0",
+          "srcs": "assets/cats/cat_seller_idle_0.png"
+        },
+        {
+          "name": "cat_seller_idle_1",
+          "srcs": "assets/cats/cat_seller_idle_1.png"
+        }
+      ]
+    },
+    {
+      "name": "ui",
+      "assets": [
+        {
+          "name": "panel_9",
+          "srcs": "assets/ui/panel_9.png"
+        },
+        {
+          "name": "btn_primary_normal",
+          "srcs": "assets/ui/btn_primary_normal.png"
+        },
+        {
+          "name": "btn_primary_pressed",
+          "srcs": "assets/ui/btn_primary_pressed.png"
+        },
+        {
+          "name": "btn_primary_disabled",
+          "srcs": "assets/ui/btn_primary_disabled.png"
+        },
+        {
+          "name": "tab_on",
+          "srcs": "assets/ui/tab_on.png"
+        },
+        {
+          "name": "tab_off",
+          "srcs": "assets/ui/tab_off.png"
+        }
+      ]
+    },
+    {
+      "name": "fx",
+      "assets": [
+        {
+          "name": "fx_pop_0",
+          "srcs": "assets/fx/fx_pop_0.png"
+        },
+        {
+          "name": "fx_pop_1",
+          "srcs": "assets/fx/fx_pop_1.png"
+        }
+      ]
+    }
+  ]
+}
