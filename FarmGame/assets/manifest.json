@@ -1,0 +1,10 @@
+{
+  "crops": [
+    { "id": "carrot", "sprout": "assets/crops/carrot_sprout.png", "mid": "assets/crops/carrot_mid.png", "ready": "assets/crops/carrot.png" },
+    { "id": "strawberry", "sprout": "assets/crops/strawberry_sprout.png", "mid": "assets/crops/strawberry_mid.png", "ready": "assets/crops/strawberry.png" },
+    { "id": "potato", "sprout": "assets/crops/potato_sprout.png", "mid": "assets/crops/potato_mid.png", "ready": "assets/crops/potato.png" },
+    { "id": "tomato", "sprout": "assets/crops/tomato_sprout.png", "mid": "assets/crops/tomato_mid.png", "ready": "assets/crops/tomato.png" },
+    { "id": "pumpkin", "sprout": "assets/crops/pumpkin_sprout.png", "mid": "assets/crops/pumpkin_mid.png", "ready": "assets/crops/pumpkin.png" },
+    { "id": "grape", "sprout": "assets/crops/grape_sprout.png", "mid": "assets/crops/grape_mid.png", "ready": "assets/crops/grape.png" }
+  ]
+}
